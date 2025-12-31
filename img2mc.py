@@ -5,19 +5,13 @@ def bin_to_mc(input_file, output_file, namespace="rv32"):
     with open(input_file, 'rb') as f:
         data = f.read()
     
-    # 填充到 4 字节对齐
     data += b'\x00' * ((4 - len(data) % 4) % 4)
     words = [struct.unpack('<i', data[i:i+4])[0] for i in range(0, len(data), 4)]
     
     with open(output_file, 'w') as f:
         f.write(f"# Loading {input_file} into storage {namespace}:kernel Image\n")
-        # 初始化为空列表
         f.write(f"data modify storage {namespace}:kernel Image set value []\n")
         
-        # 批量处理以避免命令长度限制
-        # 利用 append from 展平列表：
-        # 1. 将一批数据存入临时列表 Batch
-        # 2. 将 Batch 中的所有元素追加到 Image 中
         batch_size = 128
         for i in range(0, len(words), batch_size):
             batch = words[i:i+batch_size]
@@ -25,12 +19,11 @@ def bin_to_mc(input_file, output_file, namespace="rv32"):
             f.write(f"data modify storage {namespace}:temp Batch set value [{batch_str}]\n")
             f.write(f"data modify storage {namespace}:kernel Image append from storage {namespace}:temp Batch[]\n")
         
-        # 清理临时存储
         f.write(f"data remove storage {namespace}:temp Batch\n")
 
 if __name__ == "__main__":
     if len(sys.argv) < 3:
-        print("Usage: python3 img2mc.py <input_bin> <output_mcfunction>")
+        print("Usage: img2mc.py <input_bin> <output_mcfunction>")
     else:
         namespace = "rv32"
         if len(sys.argv) > 3:

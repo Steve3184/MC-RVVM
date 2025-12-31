@@ -1,4 +1,6 @@
-# MC-RVVM (RV32 ELF 到 Minecraft 的编译器 )
+# MC-RVVM (RV32 ELF 到 MC数据包 的编译器 )
+
+[English](README.md) | 简体中文
 
 MC-RVVM 是一个将 RISC-V (RV32IMA) 机器码静态转译为 Minecraft 函数 (`.mcfunction`) 命令的工具链，使得静态二进制文件能够以数据包的形式在原版游戏中运行
 

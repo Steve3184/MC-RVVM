@@ -1,4 +1,6 @@
-# MC-RVVM (RV32 ELF to Minecraft Compiler)
+# MC-RVVM (RV32 ELF to Minecraft Datapack Compiler)
+
+English | [简体中文](README_CN.md)
 
 MC-RVVM is a toolchain that transpiles RISC-V (RV32IMA) machine code into Minecraft Function (`.mcfunction`) commands, allowing static binaries to run natively as a Datapack.
 
