@@ -9,15 +9,15 @@ def bin_to_mc(input_file, output_file, namespace="rv32"):
     words = [struct.unpack('<i', data[i:i+4])[0] for i in range(0, len(data), 4)]
     
     with open(output_file, 'w') as f:
-        f.write(f"# Loading {input_file} into storage {namespace}:kernel Image\n")
-        f.write(f"data modify storage {namespace}:kernel Image set value []\n")
+        f.write(f"# Loading {input_file} into storage {namespace}:data Data\n")
+        f.write(f"data modify storage {namespace}:data Data set value []\n")
         
         batch_size = 128
         for i in range(0, len(words), batch_size):
             batch = words[i:i+batch_size]
             batch_str = ",".join(map(str, batch))
             f.write(f"data modify storage {namespace}:temp Batch set value [{batch_str}]\n")
-            f.write(f"data modify storage {namespace}:kernel Image append from storage {namespace}:temp Batch[]\n")
+            f.write(f"data modify storage {namespace}:data Data append from storage {namespace}:temp Batch[]\n")
         
         f.write(f"data remove storage {namespace}:temp Batch\n")
 

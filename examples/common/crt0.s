@@ -3,7 +3,7 @@
 .global memcpy
 
 _start:
-    li sp, 512 #1048576
+    li sp, 1024
     jal ra, main
     li a7, 93    # dump
     ecall
@@ -61,6 +61,19 @@ puts:
     lw ra, 12(sp)
     lw s0, 8(sp)
     addi sp, sp, 16
+    ret
+
+.global poweroff
+poweroff:
+    li a7, 12
+    li a0, 0x5555
+    ecall
+    ret
+
+.global exec_cmd
+exec_cmd:
+    li a7, 14
+    ecall
     ret
 
 loop:

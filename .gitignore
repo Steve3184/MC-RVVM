@@ -1,10 +1,10 @@
 __pycache__/
 *.pyc
-
 *.o
 *.elf
 *.bin
-temp.bin
 Image
 
 .vscode/
+
+rv_datapack/

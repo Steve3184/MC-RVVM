@@ -189,7 +189,7 @@ class Transpiler:
                 elif instr.name in ["amoand.w", "amoor.w", "amoxor.w"]:
                     cmds.append(f"scoreboard players operation #op1 {temp_obj} = #old {temp_obj}")
                     cmds.append(f"scoreboard players operation #op2 {temp_obj} = {rs2} {reg_obj}")
-                    lib_name = instr.name[3:-2] # extract and/or/xor
+                    lib_name = instr.name[3:-2]
                     cmds.append(f"function {self.namespace}:lib/{lib_name}")
                     cmds.append(f"scoreboard players operation #new {temp_obj} = #res {temp_obj}")
                 elif instr.name in ["amomin.w", "amomax.w", "amominu.w", "amomaxu.w"]:
