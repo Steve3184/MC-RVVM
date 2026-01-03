@@ -1,79 +1,118 @@
-#include <stdint.h>
-
-extern void putchar(char c);
-extern void puts(const char* s);
-extern void poweroff();
-extern void exec_cmd(const char* cmd);
-
-void print_test_result(const char* name, int passed) {
-    puts("TEST: ");
-    puts(name);
-    puts(passed ? " [PASS]\n" : " [FAIL]\n");
-}
+#include "crt0.h"
 
 int g_counter = 0;
-int g_init_val = 123;
+int g_init_val = 12345;
 
-int test_alu() {
-    volatile int a = 10;
-    volatile int b = 20;
-    volatile int c = 0;
-    int failures = 0;
-
-    c = a + b;
-    if (c != 30) { puts("ADD Fail\n"); failures++; }
-    
-    c = b - a;
-    if (c != 10) { puts("SUB Fail\n"); failures++; }
-    
-    c = a * b;
-    if (c != 200) { puts("MUL Fail\n"); failures++; }
-    
-    c = 1 << 4;
-    if (c != 16) { puts("SLL Fail\n"); failures++; }
-    
-    c = 32 >> 2;
-    if (c != 8) { puts("SRL Fail\n"); failures++; }
-
-    c = 0xF0 & 0x0F;
-    if (c != 0) { puts("AND Fail\n"); failures++; }
-    
-    c = 0xF0 | 0x0F;
-    if (c != 0xFF) { puts("OR Fail\n"); failures++; }
-
-    return failures == 0;
+void print_test_result(const char* name, int passed) {
+    printf("TEST: %s [", name);
+    if (passed) {
+        printf("PASS]\n");
+    } else {
+        printf("FAIL]\n");
+    }
 }
 
-int test_memory() {
-    volatile uint32_t* ptr = (uint32_t*)&g_counter;
-    *ptr = 0xDEADBEEF;
-    if (g_counter != 0xDEADBEEF) return 0;
+int test_alu() {
+    volatile int a = 100;
+    volatile int b = 3;
+    volatile int c = 0;
+    int fail = 0;
+
+    if ((a + b) != 103) { printf("ADD Fail\n"); fail++; }
+    if ((a - b) != 97)  { printf("SUB Fail\n"); fail++; }
+    if ((a * b) != 300) { printf("MUL Fail\n"); fail++; }
     
-    if (g_init_val != 123) return 0;
+    if ((a / b) != 33)  { printf("DIV Fail: 100/3 != 33\n"); fail++; }
+    if ((a % b) != 1)   { printf("REM Fail: 100%%3 != 1\n"); fail++; }
+
+    if ((0xF0 & 0x0F) != 0) { printf("AND Fail\n"); fail++; }
+    if ((0xF0 | 0x0F) != 0xFF) { printf("OR Fail\n"); fail++; }
+    if ((1 << 4) != 16) { printf("SLL Fail\n"); fail++; }
+
+    return fail == 0;
+}
+
+int test_lib_functions() {
+    char buf1[32];
+    char buf2[32];
+    int fail = 0;
+
+    memset(buf1, 'A', 10);
+    buf1[10] = 0;
+    if (strlen(buf1) != 10) { printf("memset/strlen len fail\n"); fail++; }
+    if (buf1[0] != 'A' || buf1[9] != 'A') { printf("memset content fail\n"); fail++; }
+
+    const char* src = "HelloRV";
+    memcpy(buf2, src, 8);
+    if (strcmp(buf2, "HelloRV") != 0) { printf("memcpy/strcmp fail\n"); fail++; }
+
+    strcpy(buf1, "CopyTest");
+    if (strcmp(buf1, "CopyTest") != 0) { printf("strcpy fail\n"); fail++; }
+
+    return fail == 0;
+}
+
+int test_fast_builders() {
+    char buffer[64];
+    char* ptr = buffer;
+    int fail = 0;
+
+    ptr = str_append(ptr, "Pos: ");
+    ptr = fmt_coord(ptr, 12345);
+    *ptr = 0;
+
+    if (strcmp(buffer, "Pos: 12.345") != 0) {
+        printf("fmt_coord fail. Got: '%s'\n", buffer);
+        fail++;
+    }
+
+    ptr = buffer;
+    ptr = itoa_append(ptr, -54321);
+    *ptr = 0;
     
-    return 1;
+    if (strcmp(buffer, "-54321") != 0) {
+        printf("itoa_append fail. Got: '%s'\n", buffer);
+        fail++;
+    }
+
+    return fail == 0;
+}
+
+int test_ecalls() {
+    int fail = 0;
+    
+    printf("Testing Exec Cmd (Chat Output)...\n");
+    exec_cmd("say [RVVM] Hello from RISC-V!");
+
+    printf("Testing NBT Write -> Read loop...\n");
+    
+    int magic_val = 0xCAFEBABE; // -889275714
+    write_nbt("rv32:temp", "magic_test", magic_val);
+    
+    int read_val = read_nbt("rv32:temp", "magic_test");
+    
+    if (read_val != magic_val) {
+        printf("NBT RW Fail. Wrote: %d, Read: %d\n", magic_val, read_val);
+        fail++;
+    } else {
+        printf("NBT RW Verify: OK (%x)\n", read_val);
+    }
+    
+    exec_cmd("data remove storage rv32:temp magic_test");
+    
+    return fail == 0;
 }
 
 int main() {
-    puts("\n=== MC-RVVM Bare Metal Test (Transpiler) ===\n");
-    
-    if (test_alu()) {
-        print_test_result("ALU Operations", 1);
-    } else {
-        print_test_result("ALU Operations", 0);
-    }
+    printf("\n=== MC-RVVM Standard Library Test ===\n");
+    printf("Init Global Val: %d\n\n", g_init_val);
 
-    if (test_memory()) {
-        print_test_result("Memory Access", 1);
-    } else {
-        print_test_result("Memory Access", 0);
-    }
+    print_test_result("ALU & Math", test_alu());
+    print_test_result("Lib (Mem/Str)", test_lib_functions());
+    print_test_result("Fast Builders", test_fast_builders());
+    print_test_result("Ecalls (NBT/IO)", test_ecalls());
 
-    // Test Exec Cmd
-    puts("Testing exec_cmd...\n");
-    exec_cmd("say \"1234567890test'\"");
-    
-    puts("=== All Tests Completed ===\n");
+    printf("\n=== All Tests Finished ===\n");
     
     poweroff();
     return 0;

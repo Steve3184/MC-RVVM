@@ -17,6 +17,8 @@ class LibGenerator:
         ascii_depth = self.gen_uart()
         self.gen_data_loader()
         self.gen_exec_cmd()
+        self.gen_read_nbt()
+        self.gen_write_nbt()
         self.gen_ecall()
         self.gen_debug()
         return ascii_depth, self.lib_costs
@@ -34,66 +36,128 @@ class LibGenerator:
         self.lib_costs[name] = count + dep_cost
 
     def gen_exec_cmd(self):
-        MAX_CMD_LEN = 256
-        args_keys = [f'c{i}' for i in range(MAX_CMD_LEN)]
-        args_json = "{" + ",".join([f'{k}:""' for k in args_keys]) + "}"
-        
-        macro_call = "$" + "".join([f'$(c{i})' for i in range(MAX_CMD_LEN)])
-        
+        MAX_CMD_LEN = 4096
+        lines_init = [f'data modify storage {self.namespace}:cmd_template args set value {{}}']
+        batch = []
+        for i in range(MAX_CMD_LEN):
+            batch.append(f'"{i}":""')
+            if len(batch) >= 100:
+                lines_init.append(f'data modify storage {self.namespace}:cmd_template args merge value {{{",".join(batch)}}}')
+                batch = []
+        if batch:
+            lines_init.append(f'data modify storage {self.namespace}:cmd_template args merge value {{{",".join(batch)}}}')
+
+        with open(os.path.join(self.output_dir, "lib", "init_cmd_template.mcfunction"), "w") as f:
+            f.write("\n".join(lines_init) + "\n")
+
         lines = [
-            f'data modify storage {self.namespace}:io args set value {args_json}',
-            'scoreboard players set #idx rv_temp 0',
-            'scoreboard players operation #addr rv_temp = x10 rv_reg',
-            f'function {self.namespace}:ecall/exec_cmd_loop',
-            f'function {self.namespace}:ecall/exec_cmd_run with storage {self.namespace}:io'
+            f"data modify storage {self.namespace}:io_cmd args set from storage {self.namespace}:cmd_template args",
+            "scoreboard players set #idx rv_temp 0",
+            "scoreboard players operation #addr rv_temp = x10 rv_reg",
+            f"function {self.namespace}:ecall/exec_cmd_loop",
+            f"function {self.namespace}:ecall/exec_cmd_run_macro with storage {self.namespace}:io_cmd args"
         ]
-        with open(os.path.join(self.output_dir, "ecall", "exec_cmd.mcfunction"), 'w') as f:
+        with open(os.path.join(self.output_dir, "ecall", "exec_cmd.mcfunction"), "w") as f:
             f.write("\n".join(lines) + "\n")
             
         lines_loop = [
-            f'execute if score #idx rv_temp matches {MAX_CMD_LEN}.. run return 0',
+            f"execute if score #idx rv_temp matches {MAX_CMD_LEN}.. run return 0",
+            "scoreboard players operation #off rv_temp = #addr rv_temp",
+            "scoreboard players operation #off rv_temp %= #four rv_const",
+            "execute if score #off rv_temp matches ..-1 run scoreboard players add #off rv_temp 4",
+            "scoreboard players operation #addr_word rv_temp = #addr rv_temp",
+            "scoreboard players operation #addr_word rv_temp /= #four rv_const",
+            f"execute store result storage {self.namespace}:io_cmd addr int 1 run scoreboard players get #addr_word rv_temp",
+            f"function {self.namespace}:mem/read_lw with storage {self.namespace}:io_cmd",
+            "scoreboard players operation #w rv_temp = #res rv_temp",
+            "scoreboard players set #valid rv_temp 4",
+            "execute if score #off rv_temp matches 1.. run scoreboard players operation #valid rv_temp -= #off rv_temp",
+            "execute if score #off rv_temp matches 1.. run scoreboard players operation #op1 rv_temp = #w rv_temp",
+            "execute if score #off rv_temp matches 1.. run scoreboard players operation #op2 rv_temp = #off rv_temp",
+            "execute if score #off rv_temp matches 1.. run scoreboard players operation #op2 rv_temp *= #p_3 rv_const",
+            f"execute if score #off rv_temp matches 1.. run function {self.namespace}:lib/srl",
+            "execute if score #off rv_temp matches 1.. run scoreboard players operation #w rv_temp = #res rv_temp",
+            f"execute if score #valid rv_temp matches ..0 run function {self.namespace}:ecall/exec_cmd_next_word",
+            "execute if score #valid rv_temp matches ..0 run return 0",
+            "scoreboard players operation #byte rv_temp = #w rv_temp",
+            "scoreboard players operation #byte rv_temp %= #p_8 rv_const",
+            "execute if score #byte rv_temp matches ..-1 run scoreboard players operation #byte rv_temp += #p_8 rv_const",
+            "execute if score #byte rv_temp matches 0 run return 0",
             
-            f'scoreboard players operation #addr_temp rv_temp = #addr rv_temp',
-            f'scoreboard players operation #off rv_temp = #addr_temp rv_temp',
-            f'scoreboard players operation #off rv_temp %= #four rv_const',
-            f'scoreboard players operation #addr_temp rv_temp /= #four rv_const',
-            f'execute store result storage {self.namespace}:io addr int 1 run scoreboard players get #addr_temp rv_temp',
-            f'execute store result storage {self.namespace}:io off int 1 run scoreboard players get #off rv_temp',
-            f'function {self.namespace}:mem/read_lb with storage {self.namespace}:io',
+            f"execute store result storage {self.namespace}:io_cmd char_idx int 1 run scoreboard players get #byte rv_temp",
+            f"execute store result storage {self.namespace}:io_cmd idx int 1 run scoreboard players get #idx rv_temp",
+            f"function {self.namespace}:ecall/exec_cmd_resolve_char with storage {self.namespace}:io_cmd",
             
-            'execute if score #res rv_temp matches 0 run return 0',
-            
-            'scoreboard players operation #char rv_temp = #res rv_temp',
-            f'function {self.namespace}:lib/ascii/map',
-            f'data modify storage {self.namespace}:io char set from storage {self.namespace}:uart char_esc',
-            
-            f'execute store result storage {self.namespace}:io temp_idx int 1 run scoreboard players get #idx rv_temp',
-            f'function {self.namespace}:ecall/exec_cmd_append with storage {self.namespace}:io',
-            
-            'scoreboard players add #addr rv_temp 1',
-            'scoreboard players add #idx rv_temp 1',
-            f'function {self.namespace}:ecall/exec_cmd_loop'
+            "scoreboard players add #idx rv_temp 1",
+            "scoreboard players remove #valid rv_temp 1",
+            f"execute if score #valid rv_temp matches ..0 run function {self.namespace}:ecall/exec_cmd_next_word",
+            "execute if score #valid rv_temp matches ..0 run return 0",
+            "execute if score #w rv_temp matches ..-1 run scoreboard players operation #w rv_temp -= #min_int rv_const",
+            "scoreboard players operation #w rv_temp /= #p_8 rv_const",
+            "execute if score #w rv_temp matches ..-1 run scoreboard players operation #w rv_temp += #p_23 rv_const",
+            "scoreboard players operation #byte rv_temp = #w rv_temp",
+            "scoreboard players operation #byte rv_temp %= #p_8 rv_const",
+            "execute if score #byte rv_temp matches ..-1 run scoreboard players operation #byte rv_temp += #p_8 rv_const",
+            "execute if score #byte rv_temp matches 0 run return 0",
+            f"execute store result storage {self.namespace}:io_cmd char_idx int 1 run scoreboard players get #byte rv_temp",
+            f"execute store result storage {self.namespace}:io_cmd idx int 1 run scoreboard players get #idx rv_temp",
+            f"function {self.namespace}:ecall/exec_cmd_resolve_char with storage {self.namespace}:io_cmd",
+            "scoreboard players add #idx rv_temp 1",
+            "scoreboard players remove #valid rv_temp 1",
+            f"execute if score #valid rv_temp matches ..0 run function {self.namespace}:ecall/exec_cmd_next_word",
+            "execute if score #valid rv_temp matches ..0 run return 0",
+            "scoreboard players operation #w rv_temp /= #p_8 rv_const",
+            "scoreboard players operation #byte rv_temp = #w rv_temp",
+            "scoreboard players operation #byte rv_temp %= #p_8 rv_const",
+            "execute if score #byte rv_temp matches ..-1 run scoreboard players operation #byte rv_temp += #p_8 rv_const",
+            "execute if score #byte rv_temp matches 0 run return 0",
+            f"execute store result storage {self.namespace}:io_cmd char_idx int 1 run scoreboard players get #byte rv_temp",
+            f"execute store result storage {self.namespace}:io_cmd idx int 1 run scoreboard players get #idx rv_temp",
+            f"function {self.namespace}:ecall/exec_cmd_resolve_char with storage {self.namespace}:io_cmd",
+            "scoreboard players add #idx rv_temp 1",
+            "scoreboard players remove #valid rv_temp 1",
+            f"execute if score #valid rv_temp matches ..0 run function {self.namespace}:ecall/exec_cmd_next_word",
+            "execute if score #valid rv_temp matches ..0 run return 0",
+            "scoreboard players operation #w rv_temp /= #p_8 rv_const",
+            "scoreboard players operation #byte rv_temp = #w rv_temp",
+            "scoreboard players operation #byte rv_temp %= #p_8 rv_const",
+            "execute if score #byte rv_temp matches ..-1 run scoreboard players operation #byte rv_temp += #p_8 rv_const",
+            "execute if score #byte rv_temp matches 0 run return 0",
+            f"execute store result storage {self.namespace}:io_cmd char_idx int 1 run scoreboard players get #byte rv_temp",
+            f"execute store result storage {self.namespace}:io_cmd idx int 1 run scoreboard players get #idx rv_temp",
+            f"function {self.namespace}:ecall/exec_cmd_resolve_char with storage {self.namespace}:io_cmd",
+            "scoreboard players add #idx rv_temp 1",
+
+            f"function {self.namespace}:ecall/exec_cmd_next_word"
         ]
-        with open(os.path.join(self.output_dir, "ecall", "exec_cmd_loop.mcfunction"), 'w') as f:
+        with open(os.path.join(self.output_dir, "ecall", "exec_cmd_loop.mcfunction"), "w") as f:
             f.write("\n".join(lines_loop) + "\n")
 
-        lines_append = [
-             f'$data modify storage {self.namespace}:io args.c$(temp_idx) set value "$(char)"',
-        ]
-        with open(os.path.join(self.output_dir, "ecall", "exec_cmd_append.mcfunction"), 'w') as f:
-            f.write("\n".join(lines_append) + "\n")
+        with open(os.path.join(self.output_dir, "ecall", "exec_cmd_next_word.mcfunction"), "w") as f:
+            lines_next = [
+                "scoreboard players operation #off rv_temp = #addr rv_temp",
+                "scoreboard players operation #off rv_temp %= #four rv_const",
+                "execute if score #off rv_temp matches ..-1 run scoreboard players add #off rv_temp 4",
+                "scoreboard players operation #next rv_temp = #four rv_const",
+                "scoreboard players operation #next rv_temp -= #off rv_temp",
+                "scoreboard players operation #addr rv_temp += #next rv_temp",
+                f"function {self.namespace}:ecall/exec_cmd_loop",
+            ]
+            f.write("\n".join(lines_next) + "\n")
 
-        lines_run = [
-            f'function {self.namespace}:ecall/exec_cmd_run_macro with storage {self.namespace}:io args'
-        ]
-        with open(os.path.join(self.output_dir, "ecall", "exec_cmd_run.mcfunction"), 'w') as f:
-            f.write("\n".join(lines_run) + "\n")
+        with open(os.path.join(self.output_dir, "ecall", "exec_cmd_resolve_char.mcfunction"), "w") as f:
+            f.write(f"$data modify storage {self.namespace}:io_cmd char set from storage {self.namespace}:ascii table[$(char_idx)]\n")
+            f.write(f"function {self.namespace}:ecall/exec_cmd_append_char with storage {self.namespace}:io_cmd\n")
 
-        lines_run_macro = [
-            macro_call
-        ]
-        with open(os.path.join(self.output_dir, "ecall", "exec_cmd_run_macro.mcfunction"), 'w') as f:
-             f.write("\n".join(lines_run_macro) + "\n")
+        with open(os.path.join(self.output_dir, "ecall", "exec_cmd_append_char.mcfunction"), "w") as f:
+            f.write(f"$data modify storage {self.namespace}:io_cmd args.$(idx) set value '$(char)'\n")
+
+        macro_str = "$" + "".join([f"$( {i} )" for i in range(MAX_CMD_LEN)])
+        macro_str = "$" + "".join([f"$({i})" for i in range(MAX_CMD_LEN)])
+        
+        with open(os.path.join(self.output_dir, "ecall", "exec_cmd_run_macro.mcfunction"), "w") as f:
+             f.write(macro_str + "\n")
+
 
     def gen_data_loader(self):
         lines_main = [
@@ -142,6 +206,29 @@ class LibGenerator:
             f.write("\n".join(lines_step) + "\n")
 
     def gen_ascii_map(self):
+        lines_table = [f'data modify storage {self.namespace}:ascii table set value []']
+        for _ in range(32):
+            lines_table.append(f'data modify storage {self.namespace}:ascii table append value ""')
+        
+        for i in range(32, 127):
+            if i == 92:
+                s_content = "\\\\\\\\"
+            elif i == 39:
+                s_content = "\\\\'"
+            elif i == 34:
+                s_content = '\\"'
+            else:
+                s_content = chr(i).replace('"', '\\"')
+                
+            lines_table.append(f'data modify storage {self.namespace}:ascii table append value "{s_content}"')
+        
+        for _ in range(127, 256):
+             lines_table.append(f'data modify storage {self.namespace}:ascii table append value ""')
+             
+        os.makedirs(os.path.join(self.output_dir, "lib", "ascii"), exist_ok=True)
+        with open(os.path.join(self.output_dir, "lib", "ascii", "init_table.mcfunction"), 'w') as f:
+            f.write("\n".join(lines_table) + "\n")
+
         def generate_tree(chars, path):
             os.makedirs(os.path.join(self.output_dir, "lib", "ascii", os.path.dirname(path)), exist_ok=True)
             with open(os.path.join(self.output_dir, "lib", "ascii", f"{path}.mcfunction"), 'w') as f:
@@ -151,24 +238,22 @@ class LibGenerator:
                     f.write(f'data modify storage {self.namespace}:uart char set value "{escaped}"\n')
                     macro_escaped = c.replace('\\', '\\\\\\\\').replace('"', '\\\\\\"')
                     f.write(f'data modify storage {self.namespace}:uart char_esc set value "{macro_escaped}"\n')
-                    
                     self._register_cost(f"lib/ascii/{path}", 2)
                     return 1
-                mid = len(chars) // 2
-                low, high = chars[:mid], chars[mid:]
-                f.write(f"execute if score #char rv_temp matches {low[0][1]}..{low[-1][1]} run function {self.namespace}:lib/ascii/{path}_0\n")
-                f.write(f"execute if score #char rv_temp matches {high[0][1]}..{high[-1][1]} run function {self.namespace}:lib/ascii/{path}_1\n")
-                
-                self._register_cost(f"lib/ascii/{path}", 2)
-                
-                d1 = generate_tree(low, f"{path}_0")
-                d2 = generate_tree(high, f"{path}_1")
-                return 1 + max(d1, d2)
+                chunk_size = (len(chars) + 3) // 4
+                chunks = [chars[i:i + chunk_size] for i in range(0, len(chars), chunk_size)]
+                max_depth = 0
+                for i, chunk in enumerate(chunks):
+                    if not chunk: continue
+                    f.write(f"execute if score #char rv_temp matches {chunk[0][1]}..{chunk[-1][1]} run function {self.namespace}:lib/ascii/{path}_{i}\n")
+                    depth = generate_tree(chunk, f"{path}_{i}")
+                    max_depth = max(max_depth, depth)
+                self._register_cost(f"lib/ascii/{path}", len(chunks)) 
+                return 1 + max_depth
         
         all_chars = [(chr(i), i) for i in range(32, 127)]
         all_chars.sort(key=lambda x: x[1])
         return generate_tree(all_chars, "map")
-
     def gen_uart(self):
         ascii_depth = self.gen_ascii_map()
         
@@ -183,13 +268,17 @@ class LibGenerator:
         lines_putc = [
             "scoreboard players operation #char rv_temp = x10 rv_reg",
             f"execute if score #char rv_temp matches 10 run function {self.namespace}:lib/uart_flush",
-            f"execute unless score #char rv_temp matches 10 run function {self.namespace}:lib/ascii/map",
-            f"execute unless score #char rv_temp matches 10 run data modify storage {self.namespace}:uart buffer append from storage {self.namespace}:uart char"
+            f"execute unless score #char rv_temp matches 10 run execute store result storage {self.namespace}:io char_idx int 1 run scoreboard players get #char rv_temp",
+            f"execute unless score #char rv_temp matches 10 run function {self.namespace}:lib/uart_append_macro with storage {self.namespace}:io"
         ]
         with open(os.path.join(self.output_dir, "lib", "uart_putc.mcfunction"), 'w') as f:
             f.write("\n".join(lines_putc) + "\n")
+        
+        with open(os.path.join(self.output_dir, "lib", "uart_append_macro.mcfunction"), 'w') as f:
+            f.write(f'$data modify storage {self.namespace}:uart buffer append from storage {self.namespace}:ascii table[$(char_idx)]\n')
+
         self._register_cost("lib/uart_putc", lines_putc, deps=["lib/uart_flush"])
-        self.lib_costs["lib/uart_putc"] += ascii_depth
+        self.lib_costs["lib/uart_putc"] = len(lines_putc) + 2
         
         return ascii_depth
 
@@ -389,7 +478,10 @@ class LibGenerator:
             f.write(f"data modify storage {self.namespace}:safe_ram data set value [0,0,0,0,0,0,0,0]\n")
             for _ in range(16):
                 f.write(f"data modify storage {self.namespace}:safe_ram data append from storage {self.namespace}:safe_ram data[]\n")
-        
+            f.write(f"function {self.namespace}:lib/ascii/init_table\n")
+            f.write(f"function {self.namespace}:lib/init_nbt_template\n")
+            f.write(f"function {self.namespace}:lib/init_cmd_template\n")
+
         def gen_u_div(f, n):
             f.write(f"execute if score #w rv_temp matches ..-1 run scoreboard players operation #w rv_temp -= #min_int rv_const\n")
             f.write(f"scoreboard players operation #w rv_temp /= #p_{n} rv_const\n")
@@ -485,6 +577,159 @@ class LibGenerator:
             f.write("scoreboard players operation #new rv_temp %= #p_16 rv_const\nexecute if score #new rv_temp matches ..-1 run scoreboard players operation #new rv_temp += #p_16 rv_const\nscoreboard players operation #new rv_temp *= #mul rv_const\n")
             f.write(f"scoreboard players operation #old rv_temp += #new rv_temp\nexecute store result storage {self.namespace}:io val int 1 run scoreboard players get #old rv_temp\n$data modify storage {self.namespace}:ram data[$(addr)] set from storage {self.namespace}:io val\n")
 
+    def gen_read_nbt(self):
+        lines = [
+            f'data modify storage {self.namespace}:io_nbt buf set value ""',
+            'scoreboard players set #idx rv_temp 0',
+            'scoreboard players operation #addr rv_temp = x10 rv_reg',
+            f'function {self.namespace}:ecall/read_nbt_loop',
+            f'data modify storage {self.namespace}:io_nbt source set from storage {self.namespace}:io_nbt buf',
+            
+            f'data modify storage {self.namespace}:io_nbt buf set value ""',
+            'scoreboard players set #idx rv_temp 0',
+            'scoreboard players operation #addr rv_temp = x11 rv_reg',
+            f'function {self.namespace}:ecall/read_nbt_loop',
+            f'data modify storage {self.namespace}:io_nbt path set from storage {self.namespace}:io_nbt buf',
+            
+            f'function {self.namespace}:ecall/read_nbt_run_macro with storage {self.namespace}:io_nbt'
+        ]
+        with open(os.path.join(self.output_dir, "ecall", "read_nbt.mcfunction"), 'w') as f:
+            f.write("\n".join(lines) + "\n")
+
+        lines_loop = [
+            f"execute if score #idx rv_temp matches 256.. run return 0",
+            
+            "scoreboard players operation #off rv_temp = #addr rv_temp",
+            "scoreboard players operation #off rv_temp %= #four rv_const",
+            "execute if score #off rv_temp matches ..-1 run scoreboard players add #off rv_temp 4",
+            
+            "scoreboard players operation #addr_word rv_temp = #addr rv_temp",
+            "scoreboard players operation #addr_word rv_temp /= #four rv_const",
+            
+            f"execute store result storage {self.namespace}:io_nbt addr int 1 run scoreboard players get #addr_word rv_temp",
+            f"function {self.namespace}:mem/read_lw with storage {self.namespace}:io_nbt",
+            "scoreboard players operation #w rv_temp = #res rv_temp",
+            
+            "scoreboard players set #valid rv_temp 4",
+            "execute if score #off rv_temp matches 1.. run scoreboard players operation #valid rv_temp -= #off rv_temp",
+            "execute if score #off rv_temp matches 1.. run scoreboard players operation #op1 rv_temp = #w rv_temp",
+            "execute if score #off rv_temp matches 1.. run scoreboard players operation #op2 rv_temp = #off rv_temp",
+            "execute if score #off rv_temp matches 1.. run scoreboard players operation #op2 rv_temp *= #p_3 rv_const",
+            f"execute if score #off rv_temp matches 1.. run function {self.namespace}:lib/srl",
+            "execute if score #off rv_temp matches 1.. run scoreboard players operation #w rv_temp = #res rv_temp",
+
+            f"execute if score #valid rv_temp matches ..0 run function {self.namespace}:ecall/read_nbt_next_word",
+            "execute if score #valid rv_temp matches ..0 run return 0",
+            
+            "scoreboard players operation #byte rv_temp = #w rv_temp",
+            "scoreboard players operation #byte rv_temp %= #p_8 rv_const",
+            "execute if score #byte rv_temp matches ..-1 run scoreboard players operation #byte rv_temp += #p_8 rv_const",
+            "execute if score #byte rv_temp matches 0 run return 0",
+            
+            f"execute store result storage {self.namespace}:io_nbt char_idx int 1 run scoreboard players get #byte rv_temp",
+            f"function {self.namespace}:ecall/read_nbt_resolve_char with storage {self.namespace}:io_nbt",
+            
+            "scoreboard players add #idx rv_temp 1",
+            "scoreboard players remove #valid rv_temp 1",
+
+            f"execute if score #valid rv_temp matches ..0 run function {self.namespace}:ecall/read_nbt_next_word",
+            "execute if score #valid rv_temp matches ..0 run return 0",
+            
+            "execute if score #w rv_temp matches ..-1 run scoreboard players operation #w rv_temp -= #min_int rv_const",
+            "scoreboard players operation #w rv_temp /= #p_8 rv_const",
+            "execute if score #w rv_temp matches ..-1 run scoreboard players operation #w rv_temp += #p_23 rv_const",
+            
+            "scoreboard players operation #byte rv_temp = #w rv_temp",
+            "scoreboard players operation #byte rv_temp %= #p_8 rv_const",
+            "execute if score #byte rv_temp matches ..-1 run scoreboard players operation #byte rv_temp += #p_8 rv_const",
+            "execute if score #byte rv_temp matches 0 run return 0",
+            
+            f"execute store result storage {self.namespace}:io_nbt char_idx int 1 run scoreboard players get #byte rv_temp",
+            f"function {self.namespace}:ecall/read_nbt_resolve_char with storage {self.namespace}:io_nbt",
+            
+            "scoreboard players add #idx rv_temp 1",
+            "scoreboard players remove #valid rv_temp 1",
+
+            f"execute if score #valid rv_temp matches ..0 run function {self.namespace}:ecall/read_nbt_next_word",
+            "execute if score #valid rv_temp matches ..0 run return 0",
+            
+            "scoreboard players operation #w rv_temp /= #p_8 rv_const",
+            "scoreboard players operation #byte rv_temp = #w rv_temp",
+            "scoreboard players operation #byte rv_temp %= #p_8 rv_const",
+            "execute if score #byte rv_temp matches ..-1 run scoreboard players operation #byte rv_temp += #p_8 rv_const",
+            "execute if score #byte rv_temp matches 0 run return 0",
+            
+            f"execute store result storage {self.namespace}:io_nbt char_idx int 1 run scoreboard players get #byte rv_temp",
+            f"function {self.namespace}:ecall/read_nbt_resolve_char with storage {self.namespace}:io_nbt",
+            
+            "scoreboard players add #idx rv_temp 1",
+            "scoreboard players remove #valid rv_temp 1",
+
+            f"execute if score #valid rv_temp matches ..0 run function {self.namespace}:ecall/read_nbt_next_word",
+            "execute if score #valid rv_temp matches ..0 run return 0",
+            
+            "scoreboard players operation #w rv_temp /= #p_8 rv_const",
+            "scoreboard players operation #byte rv_temp = #w rv_temp",
+            "scoreboard players operation #byte rv_temp %= #p_8 rv_const",
+            "execute if score #byte rv_temp matches ..-1 run scoreboard players operation #byte rv_temp += #p_8 rv_const",
+            "execute if score #byte rv_temp matches 0 run return 0",
+            
+            f"execute store result storage {self.namespace}:io_nbt char_idx int 1 run scoreboard players get #byte rv_temp",
+            f"function {self.namespace}:ecall/read_nbt_resolve_char with storage {self.namespace}:io_nbt",
+            
+            "scoreboard players add #idx rv_temp 1",
+
+            f"function {self.namespace}:ecall/read_nbt_next_word"
+        ]
+        with open(os.path.join(self.output_dir, "ecall", "read_nbt_loop.mcfunction"), 'w') as f:
+            f.write("\n".join(lines_loop) + "\n")
+            
+        with open(os.path.join(self.output_dir, "ecall", "read_nbt_next_word.mcfunction"), 'w') as f:
+            lines_next = [
+                "scoreboard players operation #off rv_temp = #addr rv_temp",
+                "scoreboard players operation #off rv_temp %= #four rv_const",
+                "execute if score #off rv_temp matches ..-1 run scoreboard players add #off rv_temp 4",
+                "scoreboard players operation #next rv_temp = #four rv_const",
+                "scoreboard players operation #next rv_temp -= #off rv_temp",
+                "scoreboard players operation #addr rv_temp += #next rv_temp",
+                f"function {self.namespace}:ecall/read_nbt_loop",
+            ]
+            f.write("\n".join(lines_next) + "\n")
+
+        with open(os.path.join(self.output_dir, "ecall", "read_nbt_resolve_char.mcfunction"), 'w') as f:
+            f.write(f"$data modify storage {self.namespace}:io_nbt char set from storage {self.namespace}:ascii table[$(char_idx)]\n")
+            f.write(f"function {self.namespace}:ecall/read_nbt_append_char with storage {self.namespace}:io_nbt\n")
+
+        with open(os.path.join(self.output_dir, "ecall", "read_nbt_append_char.mcfunction"), 'w') as f:
+            f.write(f"$data modify storage {self.namespace}:io_nbt buf set value '$(buf)$(char)'\n")
+
+        with open(os.path.join(self.output_dir, "ecall", "read_nbt_run_macro.mcfunction"), 'w') as f:
+             f.write("$execute store result score x10 rv_reg run data get storage $(source) $(path)\n")
+    
+    def gen_write_nbt(self):
+        lines = [
+            f'data modify storage {self.namespace}:io_nbt buf set value ""',
+            'scoreboard players set #idx rv_temp 0',
+            'scoreboard players operation #addr rv_temp = x10 rv_reg',
+            f'function {self.namespace}:ecall/read_nbt_loop',
+            f'data modify storage {self.namespace}:io_nbt source set from storage {self.namespace}:io_nbt buf',
+
+            f'data modify storage {self.namespace}:io_nbt buf set value ""',
+            'scoreboard players set #idx rv_temp 0',
+            'scoreboard players operation #addr rv_temp = x11 rv_reg',
+            f'function {self.namespace}:ecall/read_nbt_loop',
+            f'data modify storage {self.namespace}:io_nbt path set from storage {self.namespace}:io_nbt buf',
+
+            f'execute store result storage {self.namespace}:io_nbt value int 1 run scoreboard players get x12 rv_reg',
+
+            f'function {self.namespace}:ecall/write_nbt_run_macro with storage {self.namespace}:io_nbt'
+        ]
+        with open(os.path.join(self.output_dir, "ecall", "write_nbt.mcfunction"), 'w') as f:
+            f.write("\n".join(lines) + "\n")
+
+        with open(os.path.join(self.output_dir, "ecall", "write_nbt_run_macro.mcfunction"), 'w') as f:
+             f.write("$data modify storage $(source) $(path) set value $(value)\n")
+
     def gen_ecall(self):
         with open(os.path.join(self.output_dir, "ecall", "dispatch.mcfunction"), 'w') as f:
             f.write(f"execute if score x17 rv_reg matches 1 run function {self.namespace}:ecall/print_int\n")
@@ -492,6 +737,8 @@ class LibGenerator:
             f.write(f"execute if score x17 rv_reg matches 12 run function {self.namespace}:ecall/syscon\n")
             f.write(f"execute if score x17 rv_reg matches 13 run function {self.namespace}:ecall/load_data\n")
             f.write(f"execute if score x17 rv_reg matches 14 run function {self.namespace}:ecall/exec_cmd\n")
+            f.write(f"execute if score x17 rv_reg matches 15 run function {self.namespace}:ecall/read_nbt\n")
+            f.write(f"execute if score x17 rv_reg matches 16 run function {self.namespace}:ecall/write_nbt\n")
             f.write(f"execute if score x17 rv_reg matches 93 run function {self.namespace}:debug/dump_inline\n")
             f.write(f"execute if score x17 rv_reg matches 10 run scoreboard players set #halt rv_temp 1\n")
         
