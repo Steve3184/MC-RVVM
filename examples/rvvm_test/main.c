@@ -15,16 +15,13 @@ void print_test_result(const char* name, int passed) {
 int test_alu() {
     volatile int a = 100;
     volatile int b = 3;
-    volatile int c = 0;
     int fail = 0;
 
     if ((a + b) != 103) { printf("ADD Fail\n"); fail++; }
     if ((a - b) != 97)  { printf("SUB Fail\n"); fail++; }
     if ((a * b) != 300) { printf("MUL Fail\n"); fail++; }
-    
     if ((a / b) != 33)  { printf("DIV Fail: 100/3 != 33\n"); fail++; }
     if ((a % b) != 1)   { printf("REM Fail: 100%%3 != 1\n"); fail++; }
-
     if ((0xF0 & 0x0F) != 0) { printf("AND Fail\n"); fail++; }
     if ((0xF0 | 0x0F) != 0xFF) { printf("OR Fail\n"); fail++; }
     if ((1 << 4) != 16) { printf("SLL Fail\n"); fail++; }
@@ -85,10 +82,8 @@ int test_ecalls() {
     exec_cmd("say [RVVM] Hello from RISC-V!");
 
     printf("Testing NBT Write -> Read loop...\n");
-    
-    int magic_val = 0xCAFEBABE; // -889275714
+    int magic_val = 0xCAFEBABE;
     write_nbt("rv32:temp", "magic_test", magic_val);
-    
     int read_val = read_nbt("rv32:temp", "magic_test");
     
     if (read_val != magic_val) {
@@ -103,6 +98,14 @@ int test_ecalls() {
     return fail == 0;
 }
 
+int test_sleep_ecall() {
+    printf("Testing Sleep Ecall (Wait 80 ticks/4s)...\n");
+    printf("Start sleep...\n");
+    sleep(80);
+    printf("Wake up after sleep!\n");
+    return 1;
+}
+
 int main() {
     printf("\n=== MC-RVVM Standard Library Test ===\n");
     printf("Init Global Val: %d\n\n", g_init_val);
@@ -111,6 +114,7 @@ int main() {
     print_test_result("Lib (Mem/Str)", test_lib_functions());
     print_test_result("Fast Builders", test_fast_builders());
     print_test_result("Ecalls (NBT/IO)", test_ecalls());
+    print_test_result("Sleep Mechanism", test_sleep_ecall());
 
     printf("\n=== All Tests Finished ===\n");
     

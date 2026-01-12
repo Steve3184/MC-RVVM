@@ -13,6 +13,9 @@
 ## ✨ 核心特性
 
 - **⚡ 静态转译技术**: 将 ELF 文件预编译为基于树状分发的 Minecraft 函数，极大减少运行时开销
+- **🚀 Block 块优化**: 自动识别热点代码并进行指令块优化，显著降低调度深度，提升执行效率 (使用 `--optimize`)
+- **📺 GPU 渲染引擎**: 引入基于 `text_display` 的高速渲染技术，支持 48x40 分辨率的画面输出
+- **💤 原子级 Sleep**: 完美支持 `sleep` 系统调用，允许暂停指定时长，或暂停当前刻后续指令的执行
 - **🔧 完整架构支持**: 完美支持 standard RV32IMA 指令集
 - **🐧 运行 Linux**: 包含 `mini-rv32ima` 移植，支持在游戏内引导 Linux 6.x 内核（虽然启动非常慢，但那可是完整Linux内核！）
 - **🚀 极速寻址优化**: 独有的指令折叠与二分查找优化，大幅提升指令执行速度
@@ -112,7 +115,7 @@ CC = riscv32-unknown-elf-gcc
 OBJCOPY = riscv32-unknown-elf-objcopy
 PYTHON = python3
 
-CFLAGS = -march=rv32ima -mabi=ilp32 -nostdlib -fno-builtin -fno-stack-protector -I. -I../common
+CFLAGS = -march=rv32ima -mabi=ilp32 -nostdlib -fno-builtin -fno-stack-protector -I. -Os
 LDSCRIPT = linker.ld
 CRT0 = crt0.s
 
@@ -124,24 +127,27 @@ TARGET = my_program
 all: $(TARGET).bin transpile
 
 $(TARGET).elf: $(TARGET).c $(CRT0)
-	$(CC) $(CFLAGS) -T $(LDSCRIPT) $(CRT0) $(TARGET).c -o $@
+	$(CC) $(CFLAGS) -Wl,-Map=$(TARGET).map -T $(LDSCRIPT) $(CRT0) $(TARGET).c -o $@
 
 $(TARGET).bin: $(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 
 transpile: $(TARGET).bin
-	$(PYTHON) $(MAIN_PY) $< $(DATAPACK_DIR)
+	$(PYTHON) $(MAIN_PY) $< $(DATAPACK_DIR) --map_file $(TARGET).map -O
 
 clean:
-	rm -f *.elf *.bin
+	rm -f *.elf *.bin *.map
 ```
 
 **转译器参数说明 (`src/main.py`)：**
 
-- `usage: main.py [-h] [--namespace NAMESPACE] input_file output_dir`
+- `usage: main.py [-h] [--namespace NAMESPACE] [--map_file MAP_FILE] [--optimize] [--ipt IPT] input_file output_dir`
 - `input_file`: 二进制文件 (.bin) 或 Hex dump 路径
 - `output_dir`: 数据包输出目录
 - `--namespace`: 数据包命名空间 (默认: `rv32`)
+- `--optimize` / `-O`: 启用 Block 块优化，显著提升复杂程序的运行速度
+- `--ipt`: 设置每 tick 执行的指令数 (默认: 2500, 最大: 3200)
+- `--map_file`: 指定 GCC 生成的 `.map` 文件，让 Block 优化器识别函数边界
 
 ## 🎮 游戏内操作
 

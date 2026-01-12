@@ -3,6 +3,7 @@ __pycache__/
 *.o
 *.elf
 *.bin
+*.map
 Image
 
 .vscode/

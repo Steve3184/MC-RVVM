@@ -3,13 +3,16 @@ class Transpiler:
         self.instructions = instructions
         self.namespace = namespace
         self.pc_obj = f"{namespace}_pc"
+        self.reg_obj = f"{namespace}_reg"
+        self.temp_obj = f"{namespace}_temp"
+        self.const_obj = f"{namespace}_const"
 
-    def convert_instruction(self, instr):
+    def convert_instruction(self, instr, include_pc_update=True):
         cmds = []
-        reg_obj = "rv_reg"
+        reg_obj = self.reg_obj
         pc_obj = self.pc_obj
-        temp_obj = "rv_temp"
-        const_player = "#const"
+        temp_obj = self.temp_obj
+        const_obj = self.const_obj
 
         def s32(val):
             val &= 0xFFFFFFFF
@@ -32,7 +35,7 @@ class Transpiler:
                 return [f"scoreboard players add {player} {obj} {s_val}"]
             else:
                 if s_val == -2147483648:
-                    return [f"scoreboard players operation {player} {obj} += #min_int rv_const"]
+                    return [f"scoreboard players operation {player} {obj} += #min_int {const_obj}"]
                 else:
                     return [f"scoreboard players remove {player} {obj} {abs(s_val)}"]
 
@@ -60,7 +63,7 @@ class Transpiler:
                     cmds.append(f"scoreboard players set #op2 {temp_obj} {instr.imm}")
                     cmds.append(f"function {self.namespace}:lib/{instr.name[:-1]}")
                     cmds.append(f"scoreboard players operation {rd} {reg_obj} = #res {temp_obj}")
-            cmds.append(f"scoreboard players add pc {pc_obj} 4")
+            if include_pc_update: cmds.append(f"scoreboard players add pc {pc_obj} 4")
 
         elif instr.name in ["sll", "srl", "sra", "slli", "srli", "srai"]:
             rd = target(instr.rd)
@@ -74,7 +77,7 @@ class Transpiler:
                     lib_name = instr.name
                 cmds.append(f"function {self.namespace}:lib/{lib_name}")
                 cmds.append(f"scoreboard players operation {rd} {reg_obj} = #res {temp_obj}")
-            cmds.append(f"scoreboard players add pc {pc_obj} 4")
+            if include_pc_update: cmds.append(f"scoreboard players add pc {pc_obj} 4")
 
         elif instr.name in ["slt", "sltu", "slti", "sltiu"]:
             rd = target(instr.rd)
@@ -87,27 +90,27 @@ class Transpiler:
                     cmds.append(f"scoreboard players operation {rd} {reg_obj} = #res {temp_obj}")
                 else:
                     cmds.append(f"scoreboard players operation #u1 {temp_obj} = {source(instr.rs1)} {reg_obj}")
-                    cmds.append(f"scoreboard players operation #u1 {temp_obj} -= #min_int rv_const")
+                    cmds.append(f"scoreboard players operation #u1 {temp_obj} -= #min_int {const_obj}")
                     if instr.name == "sltu":
                         cmds.append(f"scoreboard players operation #u2 {temp_obj} = {source(instr.rs2)} {reg_obj}")
-                        cmds.append(f"scoreboard players operation #u2 {temp_obj} -= #min_int rv_const")
+                        cmds.append(f"scoreboard players operation #u2 {temp_obj} -= #min_int {const_obj}")
                     else:
                         cmds.append(f"scoreboard players set #imm {temp_obj} {instr.imm}")
                         cmds.append(f"scoreboard players operation #u2 {temp_obj} = #imm {temp_obj}")
-                        cmds.append(f"scoreboard players operation #u2 {temp_obj} -= #min_int rv_const")
+                        cmds.append(f"scoreboard players operation #u2 {temp_obj} -= #min_int {const_obj}")
                     cmds.append(f"scoreboard players set #res {temp_obj} 0")
                     cmds.append(f"execute if score #u1 {temp_obj} < #u2 {temp_obj} run scoreboard players set #res {temp_obj} 1")
                     cmds.append(f"scoreboard players operation {rd} {reg_obj} = #res {temp_obj}")
-            cmds.append(f"scoreboard players add pc {pc_obj} 4")
+            if include_pc_update: cmds.append(f"scoreboard players add pc {pc_obj} 4")
 
         elif instr.name in ["beq", "bne", "blt", "bge", "bltu", "bgeu"]:
             target_addr = s32(instr.address + instr.imm)
             next_addr = s32(instr.address + 4)
             if instr.name in ["bltu", "bgeu"]:
                 cmds.append(f"scoreboard players operation #u1 {temp_obj} = {source(instr.rs1)} {reg_obj}")
-                cmds.append(f"scoreboard players operation #u1 {temp_obj} -= #min_int rv_const")
+                cmds.append(f"scoreboard players operation #u1 {temp_obj} -= #min_int {const_obj}")
                 cmds.append(f"scoreboard players operation #u2 {temp_obj} = {source(instr.rs2)} {reg_obj}")
-                cmds.append(f"scoreboard players operation #u2 {temp_obj} -= #min_int rv_const")
+                cmds.append(f"scoreboard players operation #u2 {temp_obj} -= #min_int {const_obj}")
                 op = "<" if instr.name == "bltu" else ">="
                 cmds.append(f"execute if score #u1 {temp_obj} {op} #u2 {temp_obj} run scoreboard players set pc {pc_obj} {target_addr}")
                 cmds.append(f"execute unless score #u1 {temp_obj} {op} #u2 {temp_obj} run scoreboard players set pc {pc_obj} {next_addr}")
@@ -127,26 +130,26 @@ class Transpiler:
             if rd: cmds.append(f"scoreboard players set {rd} {reg_obj} {s32(instr.address + 4)}")
             cmds.append(f"scoreboard players operation pc {pc_obj} = {source(instr.rs1)} {reg_obj}")
             cmds.extend(safe_add_literal("pc", pc_obj, instr.imm))
-            cmds.append(f"scoreboard players operation pc {pc_obj} /= #two rv_const")
-            cmds.append(f"scoreboard players operation pc {pc_obj} *= #two rv_const")
+            cmds.append(f"scoreboard players operation pc {pc_obj} /= #two {const_obj}")
+            cmds.append(f"scoreboard players operation pc {pc_obj} *= #two {const_obj}")
 
         elif instr.name == "lui":
             rd = target(instr.rd)
             if rd: cmds.append(f"scoreboard players set {rd} {reg_obj} {s32(instr.imm)}")
-            cmds.append(f"scoreboard players add pc {pc_obj} 4")
+            if include_pc_update: cmds.append(f"scoreboard players add pc {pc_obj} 4")
         elif instr.name == "auipc":
             rd = target(instr.rd)
             if rd:
                 cmds.append(f"scoreboard players set {rd} {reg_obj} {s32(instr.address + instr.imm)}")
-            cmds.append(f"scoreboard players add pc {pc_obj} 4")
+            if include_pc_update: cmds.append(f"scoreboard players add pc {pc_obj} 4")
 
         elif instr.name in ["lw", "lh", "lb", "lhu", "lbu", "sw", "sh", "sb"]:
             rd_or_rs2 = target(instr.rd) if instr.name[0] == 'l' else source(instr.rs2)
             cmds.append(f"scoreboard players operation #addr {temp_obj} = {source(instr.rs1)} {reg_obj}")
             cmds.extend(safe_add_literal("#addr", temp_obj, instr.imm))
             cmds.append(f"scoreboard players operation #off {temp_obj} = #addr {temp_obj}")
-            cmds.append(f"scoreboard players operation #off {temp_obj} %= #four rv_const")
-            cmds.append(f"scoreboard players operation #addr {temp_obj} /= #four rv_const")
+            cmds.append(f"scoreboard players operation #off {temp_obj} %= #four {const_obj}")
+            cmds.append(f"scoreboard players operation #addr {temp_obj} /= #four {const_obj}")
             
             cmds.append(f"execute store result storage {self.namespace}:io addr int 1 run scoreboard players get #addr {temp_obj}")
             cmds.append(f"execute store result storage {self.namespace}:io off int 1 run scoreboard players get #off {temp_obj}")
@@ -158,7 +161,7 @@ class Transpiler:
                 cmds.append(f"execute store result storage {self.namespace}:io val int 1 run scoreboard players get {rd_or_rs2} {reg_obj}")
                 cmds.append(f"function {self.namespace}:mem/write_{instr.name} with storage {self.namespace}:io")
             
-            cmds.append(f"scoreboard players add pc {pc_obj} 4")
+            if include_pc_update: cmds.append(f"scoreboard players add pc {pc_obj} 4")
 
         elif instr.name in ["lr.w", "sc.w", "amoswap.w", "amoadd.w", "amoxor.w", "amoand.w", "amoor.w", "amomin.w", "amomax.w", "amominu.w", "amomaxu.w"]:
             rd = target(instr.rd)
@@ -167,8 +170,8 @@ class Transpiler:
             
             cmds.append(f"scoreboard players operation #addr {temp_obj} = {rs1} {reg_obj}")
             cmds.append(f"scoreboard players operation #off {temp_obj} = #addr {temp_obj}")
-            cmds.append(f"scoreboard players operation #off {temp_obj} %= #four rv_const")
-            cmds.append(f"scoreboard players operation #addr {temp_obj} /= #four rv_const")
+            cmds.append(f"scoreboard players operation #off {temp_obj} %= #four {const_obj}")
+            cmds.append(f"scoreboard players operation #addr {temp_obj} /= #four {const_obj}")
             cmds.append(f"execute store result storage {self.namespace}:io addr int 1 run scoreboard players get #addr {temp_obj}")
             
             if instr.name == "lr.w":
@@ -200,9 +203,9 @@ class Transpiler:
                         cmds.append(f"execute if score {rs2} {reg_obj} {op} #old {temp_obj} run scoreboard players operation #new {temp_obj} = {rs2} {reg_obj}")
                     else:
                         cmds.append(f"scoreboard players operation #u1 {temp_obj} = #old {temp_obj}")
-                        cmds.append(f"scoreboard players operation #u1 {temp_obj} -= #min_int rv_const")
+                        cmds.append(f"scoreboard players operation #u1 {temp_obj} -= #min_int {const_obj}")
                         cmds.append(f"scoreboard players operation #u2 {temp_obj} = {rs2} {reg_obj}")
-                        cmds.append(f"scoreboard players operation #u2 {temp_obj} -= #min_int rv_const")
+                        cmds.append(f"scoreboard players operation #u2 {temp_obj} -= #min_int {const_obj}")
                         cmds.append(f"scoreboard players operation #new {temp_obj} = #old {temp_obj}")
                         cmds.append(f"execute if score #u2 {temp_obj} {op} #u1 {temp_obj} run scoreboard players operation #new {temp_obj} = {rs2} {reg_obj}")
                 
@@ -210,16 +213,16 @@ class Transpiler:
                 cmds.append(f"function {self.namespace}:mem/write_sw with storage {self.namespace}:io")
                 if rd: cmds.append(f"scoreboard players operation {rd} {reg_obj} = #old {temp_obj}")
 
-            cmds.append(f"scoreboard players add pc {pc_obj} 4")
+            if include_pc_update: cmds.append(f"scoreboard players add pc {pc_obj} 4")
 
         elif instr.name == "ecall":
+            cmds.append(f"scoreboard players set pc {pc_obj} {s32(instr.address + 4)}")
             cmds.append(f"function {self.namespace}:ecall/dispatch")
-            cmds.append(f"scoreboard players add pc {pc_obj} 4")
         elif instr.name == "ebreak":
+            cmds.append(f"scoreboard players set pc {pc_obj} {s32(instr.address + 4)}")
             cmds.append(f"function {self.namespace}:debug/dump_inline")
-            cmds.append(f"scoreboard players add pc {pc_obj} 4")
         else:
-            if instr.name not in ["jal", "jalr", "beq", "bne", "blt", "bge", "bltu", "bgeu"]:
-                cmds.append(f"scoreboard players add pc {pc_obj} 4")
+            if instr.name not in ["jal", "jalr", "beq", "bne", "blt", "bge", "bltu", "bgeu", "ecall", "ebreak"]:
+                if include_pc_update: cmds.append(f"scoreboard players add pc {pc_obj} 4")
             
         return cmds

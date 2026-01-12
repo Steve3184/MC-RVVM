@@ -20,7 +20,16 @@ void puts(const char* str);
 void print_int(int val);
 void load_data(void* dest);
 void exec_cmd(const char* cmd);
+void _exec_cmd_256(const char* cmd);
+void _exec_cmd_512(const char* cmd);
+void _exec_cmd_1024(const char* cmd);
+void _exec_cmd_2048(const char* cmd);
+void _exec_cmd_3072(const char* cmd);
+void _exec_cmd_4096(const char* cmd);
+void screen_init(int x, int y, int z);
+void screen_flush(void* vram);
 int read_nbt(const char* source, const char* path);
 void write_nbt(const char* target, const char* path, int value);
+void sleep(int ticks);
 
 #endif

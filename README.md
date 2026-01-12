@@ -13,6 +13,9 @@ Want to run the **Linux Kernel** inside Minecraft? Or play **Doom** written in C
 ## ✨ Core Features
 
 - **⚡ Static Transpilation**: Pre-compiles ELF files into tree-based Minecraft functions, drastically reducing runtime overhead.
+- **🚀 Block Optimization**: Automatically identifies hot code and performs instruction block optimization, significantly reducing dispatch depth and improving efficiency (use `--optimize`).
+- **📺 GPU Rendering Engine**: Features high-speed rendering based on `text_display`, supporting 48x40 resolution output.
+- **💤 Atomic Sleep**: Full support for `sleep` system calls, allowing you to pause for a specified duration or pause the execution of subsequent instructions.
 - **🔧 Full Architecture Support**: Perfectly supports the standard RV32IMA instruction set.
 - **🐧 Run Linux**: Includes a port of `mini-rv32ima`, allowing you to boot Linux 6.x kernels in-game (it's slow to boot, but it's a real Linux kernel!).
 - **🚀 Fast Addressing**: Features unique instruction folding and binary search optimization, significantly boosting execution speed.
@@ -115,7 +118,7 @@ CC = riscv32-unknown-elf-gcc
 OBJCOPY = riscv32-unknown-elf-objcopy
 PYTHON = python3
 
-CFLAGS = -march=rv32ima -mabi=ilp32 -nostdlib -fno-builtin -fno-stack-protector -I. -I../common
+CFLAGS = -march=rv32ima -mabi=ilp32 -nostdlib -fno-builtin -fno-stack-protector -I. -Os
 LDSCRIPT = linker.ld
 CRT0 = crt0.s
 
@@ -127,24 +130,27 @@ TARGET = my_program
 all: $(TARGET).bin transpile
 
 $(TARGET).elf: $(TARGET).c $(CRT0)
-	$(CC) $(CFLAGS) -T $(LDSCRIPT) $(CRT0) $(TARGET).c -o $@
+	$(CC) $(CFLAGS) -Wl,-Map=$(TARGET).map -T $(LDSCRIPT) $(CRT0) $(TARGET).c -o $@
 
 $(TARGET).bin: $(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 
 transpile: $(TARGET).bin
-	$(PYTHON) $(MAIN_PY) $< $(DATAPACK_DIR)
+	$(PYTHON) $(MAIN_PY) $< $(DATAPACK_DIR) --map_file $(TARGET).map -O
 
 clean:
-	rm -f *.elf *.bin
+	rm -f *.elf *.bin *.map
 ```
 
 **Transpiler Arguments (`src/main.py`):**
 
-- `usage: main.py [-h] [--namespace NAMESPACE] input_file output_dir`
+- `usage: main.py [-h] [--namespace NAMESPACE] [--map_file MAP_FILE] [--optimize] [--ipt IPT] input_file output_dir`
 - `input_file`: Path to the binary file (.bin) or hex dump.
 - `output_dir`: Output directory for the datapack.
 - `--namespace`: Datapack namespace (Default: `rv32`).
+- `--optimize` / `-O`: Enables Block Optimization, significantly boosting speed for complex programs.
+- `--ipt`: Sets instructions per tick (Default: 2500, Max: 3200).
+- `--map_file`: Specifies the GCC-generated `.map` file to let the Block Optimizer identify function boundaries.
 
 ## 🎮 In-Game Operations
 
