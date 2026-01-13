@@ -24,7 +24,7 @@ mc_machine.dtb: mc_machine.dts
 	dtc -I dts -O dtb -o $@ $< -S 1536
 
 dtb_data.h: mc_machine.dtb bintoh
-	./bintoh dtb_8mb < mc_machine.dtb > $@
+	./bintoh dtb_data < mc_machine.dtb > $@
 
 $(TARGET).elf: $(TARGET).c $(CRT0) dtb_data.h
 	$(CC) $(CFLAGS) $(LDFLAGS) $(CRT0) $(TARGET).c -o $@
