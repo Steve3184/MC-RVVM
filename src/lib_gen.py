@@ -67,7 +67,6 @@ class LibGenerator:
             f.write("\n".join(palette_lines) + "\n")
 
         with open(os.path.join(self.output_dir, "ecall", "screen_init.mcfunction"), 'w') as f:
-            f.write('tellraw @a [{"text":"DEBUG: screen_init ecall entered","color":"yellow"}]\n')
             f.write("kill @e[type=text_display,tag=%s_screen]\n" % self.namespace)
             f.write(f"scoreboard players set #scale {self.namespace}_temp 1000\n")
             f.write(f"scoreboard players set #c_100 {self.namespace}_temp 100\n")
@@ -201,7 +200,6 @@ class LibGenerator:
 
     def gen_sleep(self):
         with open(os.path.join(self.output_dir, "ecall", "sleep.mcfunction"), 'w') as f:
-            f.write(f'tellraw @a [{{"text":"[ECALL] Sleep: ","color":"gray"}},{{"score":{{"name":"x10","objective":"{self.namespace}_reg"}},"color":"gold"}},{{"text":" ticks"}},{{"text":" | Wakeup PC: ","color":"gray"}},{{"score":{{"name":"pc","objective":"{self.namespace}_pc"}},"color":"aqua"}}]\n')
             f.write(f"scoreboard players operation #sleep_ticks {self.namespace}_temp = x10 {self.namespace}_reg\n")
             f.write(f"scoreboard players set #ipt_count {self.namespace}_temp 0\n")
 

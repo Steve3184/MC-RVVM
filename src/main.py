@@ -17,10 +17,10 @@ def main():
     parser.add_argument("--namespace", default="rv32", help="Datapack namespace")
     parser.add_argument("--map_file", help="Path to linker map file (.map) for optimization")
     parser.add_argument("--optimize", "-O", action="store_true", help="Enable block optimization")
-    parser.add_argument("--ipt", type=int, default=2500, help="Instructions per tick (max 3200)")
+    parser.add_argument("--ipt", type=int, default=2500, help="Instructions per tick (max 4800)")
     args = parser.parse_args()
     
-    ipt = min(args.ipt, 3200)
+    ipt = min(args.ipt, 4800)
     print(f"Reading {args.input_file}...")
     with open(args.input_file, 'rb') as f:
         data = f.read()

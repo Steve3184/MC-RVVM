@@ -1,4 +1,3 @@
-.section .text.init
 .global _start
 .global memcpy
 .global memset
@@ -23,19 +22,20 @@
 .global printf
 .global sleep
 
+.section .text.init, "ax"
 _start:
     li sp, 65536
     jal ra, main
-    li a7, 93
-    ecall
     li a7, 10
     ecall
 
+.section .text.sleep, "ax"
 sleep:
     li a7, 25
     ecall
     ret
 
+.section .text.memcpy, "ax"
 memcpy:
     mv a3, a0 
     beqz a2, 2f
@@ -49,6 +49,7 @@ memcpy:
 2:
     ret
 
+.section .text.memset, "ax"
 memset:
     mv a3, a0
     beqz a2, 2f
@@ -60,21 +61,25 @@ memset:
 2:
     ret
 
+.section .text.print_int, "ax"
 print_int:
     li a7, 1
     ecall
     ret
 
+.section .text.halt, "ax"
 halt:
     li a7, 10
     ecall
     ret
 
+.section .text.putchar, "ax"
 putchar:
     li a7, 11
     ecall
     ret
 
+.section .text.puts, "ax"
 puts:
     addi sp, sp, -16
     sw ra, 12(sp)
@@ -94,17 +99,20 @@ puts:
     addi sp, sp, 16
     ret
 
+.section .text.poweroff, "ax"
 poweroff:
     li a7, 12
     li a0, 0x5555
     ecall
     ret
 
+.section .text.load_data, "ax"
 load_data:
     li a7, 13
     ecall
     ret
 
+.section .text.exec_cmd, "ax"
 exec_cmd:
     addi sp, sp, -16
     sw ra, 12(sp)
@@ -155,26 +163,31 @@ exec_cmd:
     addi sp, sp, 16
     ret
 
+.section .text.screen_init, "ax"
 screen_init:
     li a7, 24
     ecall
     ret
 
+.section .text.screen_flush, "ax"
 screen_flush:
     li a7, 23
     ecall
     ret
 
+.section .text.read_nbt, "ax"
 read_nbt:
     li a7, 15
     ecall
     ret
 
+.section .text.write_nbt, "ax"
 write_nbt:
     li a7, 16
     ecall
     ret
 
+.section .text.strlen, "ax"
 strlen:
     mv t0, a0
 1:
@@ -186,6 +199,7 @@ strlen:
     sub a0, t0, a0
     ret
 
+.section .text.strcpy, "ax"
 strcpy:
     mv t0, a0
 1:
@@ -199,6 +213,7 @@ strcpy:
     mv a0, t0
     ret
 
+.section .text.strcmp, "ax"
 strcmp:
 1:
     lbu t0, 0(a0)
@@ -216,6 +231,7 @@ strcmp:
     li a0, 0
     ret
 
+.section .text.str_append, "ax"
 str_append:
 1:
     lbu t0, 0(a1)
@@ -227,6 +243,7 @@ str_append:
 2:
     ret
 
+.section .text.itoa_append, "ax"
 itoa_append:
     mv t0, a0
     mv t1, a1
@@ -262,6 +279,7 @@ itoa_append:
     mv a0, t0
     ret
 
+.section .text.fmt_coord, "ax"
 fmt_coord:
     addi sp, sp, -8
     sw ra, 0(sp)
@@ -307,6 +325,7 @@ fmt_coord:
     addi sp, sp, 8
     ret
 
+.section .text.printf, "ax"
 printf:
     addi sp, sp, -52
     sw ra, 48(sp)

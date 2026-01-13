@@ -3,9 +3,12 @@ OBJCOPY = riscv32-unknown-elf-objcopy
 PYTHON = python3
 HOST_CC = gcc
 
-CFLAGS = -march=rv32ima -mabi=ilp32 -nostdlib -fno-builtin -fno-stack-protector -I. -I../common
+CFLAGS = -march=rv32ima -mabi=ilp32 -nostdlib -fno-builtin -fno-stack-protector \
+         -I. -I../common -Os -ffunction-sections -fdata-sections
+
 LDSCRIPT = ../common/linker.ld
 CRT0 = ../common/crt0.s
+LDFLAGS = -Wl,-Map=$(TARGET).map -Wl,--gc-sections -T $(LDSCRIPT)
 
 MAIN_PY = ../../src/main.py
 DATAPACK_DIR = ../../rv_datapack
@@ -24,24 +27,13 @@ dtb_data.h: mc_machine.dtb bintoh
 	./bintoh dtb_8mb < mc_machine.dtb > $@
 
 $(TARGET).elf: $(TARGET).c $(CRT0) dtb_data.h
-	$(CC) $(CFLAGS) -T $(LDSCRIPT) $(CRT0) $(TARGET).c -o $@
+	$(CC) $(CFLAGS) $(LDFLAGS) $(CRT0) $(TARGET).c -o $@
 
 $(TARGET).bin: $(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 
 transpile: $(TARGET).bin
-	@echo "Transpiling emulator to Minecraft Datapack..."
-	$(PYTHON) $(MAIN_PY) $< $(DATAPACK_DIR)
-
-test_machine: test_machine.bin
-	@echo "Transpiling test machine..."
-	$(PYTHON) $(MAIN_PY) test_machine.bin $(DATAPACK_DIR)
-
-test_machine.elf: test_machine.c $(CRT0) dtb_data.h
-	$(CC) $(CFLAGS) -T $(LDSCRIPT) $(CRT0) test_machine.c -o $@
-
-test_machine.bin: test_machine.elf
-	$(OBJCOPY) -O binary $< $@
+	$(PYTHON) $(MAIN_PY) $< $(DATAPACK_DIR) --map_file $(TARGET).map --optimize
 
 clean:
-	rm -f *.elf *.bin bintoh dtb_data.h
+	rm -f *.elf *.bin *.map bintoh dtb_data.h

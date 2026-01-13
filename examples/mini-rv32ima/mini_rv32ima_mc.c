@@ -146,6 +146,8 @@ restart:
     
     puts("Booting Kernel...\n");
     int cycles = 0;
+    int loop_count = 0;
+    
     exec_set_score("KCycles", 0);
     exec_set_score("PC", core.pc);
 
@@ -153,8 +155,12 @@ restart:
         uint32_t ret = MiniRV32IMAStep(&core, ram, 0, 500, 1024);
         
         cycles++;
-        exec_set_score("KCycles", cycles);
-        exec_set_score("PC", core.pc);
+        loop_count++;
+
+        if (loop_count % 2 == 0) {
+            exec_set_score("KCycles", cycles);
+            exec_set_score("PC", core.pc);
+        }
         
         switch( ret )
         {

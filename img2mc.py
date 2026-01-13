@@ -9,7 +9,6 @@ def bin_to_mc(input_file, output_file, namespace="rv32"):
     words = [struct.unpack('<i', data[i:i+4])[0] for i in range(0, len(data), 4)]
     
     with open(output_file, 'w') as f:
-        f.write(f"# Loading {input_file} into storage {namespace}:data Data\n")
         f.write(f"data modify storage {namespace}:data Data set value []\n")
         
         batch_size = 128
