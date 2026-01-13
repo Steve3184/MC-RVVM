@@ -79,7 +79,7 @@ int test_ecalls() {
     int fail = 0;
     
     printf("Testing Exec Cmd (Chat Output)...\n");
-    exec_cmd("say [RVVM] Hello from RISC-V!");
+    exec_cmd("say Hello! ~`!@#$%^&*()-=_+[]{}\\|;':\"'?.,<>\\");
 
     printf("Testing NBT Write -> Read loop...\n");
     int magic_val = 0xCAFEBABE;

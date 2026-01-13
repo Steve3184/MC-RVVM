@@ -2,7 +2,7 @@ SECTIONS
 {
   . = 0x00000000;
   .text.init : { KEEP(*(.text.init)) }
-  .text : { *(.text) *(.rodata*) }
+  .text : { *(.text) *(.text.*) *(.rodata*) }
   .data : { *(.data) }
   .bss  : { *(.bss) }
 }

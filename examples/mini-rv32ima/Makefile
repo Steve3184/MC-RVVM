@@ -4,7 +4,7 @@ PYTHON = python3
 HOST_CC = gcc
 
 CFLAGS = -march=rv32ima -mabi=ilp32 -nostdlib -fno-builtin -fno-stack-protector \
-         -I. -I../common -Os -ffunction-sections -fdata-sections
+         -I. -I../common -Os -ffunction-sections -fdata-sections -fno-jump-tables
 
 LDSCRIPT = ../common/linker.ld
 CRT0 = ../common/crt0.s

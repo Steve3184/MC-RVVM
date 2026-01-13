@@ -23,6 +23,7 @@
 .global sleep
 
 .section .text.init, "ax"
+.balign 4
 _start:
     li sp, 65536
     jal ra, main
@@ -30,12 +31,14 @@ _start:
     ecall
 
 .section .text.sleep, "ax"
+.balign 4
 sleep:
     li a7, 25
     ecall
     ret
 
 .section .text.memcpy, "ax"
+.balign 4
 memcpy:
     mv a3, a0 
     beqz a2, 2f
@@ -50,6 +53,7 @@ memcpy:
     ret
 
 .section .text.memset, "ax"
+.balign 4
 memset:
     mv a3, a0
     beqz a2, 2f
@@ -62,24 +66,28 @@ memset:
     ret
 
 .section .text.print_int, "ax"
+.balign 4
 print_int:
     li a7, 1
     ecall
     ret
 
 .section .text.halt, "ax"
+.balign 4
 halt:
     li a7, 10
     ecall
     ret
 
 .section .text.putchar, "ax"
+.balign 4
 putchar:
     li a7, 11
     ecall
     ret
 
 .section .text.puts, "ax"
+.balign 4
 puts:
     addi sp, sp, -16
     sw ra, 12(sp)
@@ -100,6 +108,7 @@ puts:
     ret
 
 .section .text.poweroff, "ax"
+.balign 4
 poweroff:
     li a7, 12
     li a0, 0x5555
@@ -107,12 +116,14 @@ poweroff:
     ret
 
 .section .text.load_data, "ax"
+.balign 4
 load_data:
     li a7, 13
     ecall
     ret
 
 .section .text.exec_cmd, "ax"
+.balign 4
 exec_cmd:
     addi sp, sp, -16
     sw ra, 12(sp)
@@ -164,30 +175,35 @@ exec_cmd:
     ret
 
 .section .text.screen_init, "ax"
+.balign 4
 screen_init:
     li a7, 24
     ecall
     ret
 
 .section .text.screen_flush, "ax"
+.balign 4
 screen_flush:
     li a7, 23
     ecall
     ret
 
 .section .text.read_nbt, "ax"
+.balign 4
 read_nbt:
     li a7, 15
     ecall
     ret
 
 .section .text.write_nbt, "ax"
+.balign 4
 write_nbt:
     li a7, 16
     ecall
     ret
 
 .section .text.strlen, "ax"
+.balign 4
 strlen:
     mv t0, a0
 1:
@@ -200,6 +216,7 @@ strlen:
     ret
 
 .section .text.strcpy, "ax"
+.balign 4
 strcpy:
     mv t0, a0
 1:
@@ -214,6 +231,7 @@ strcpy:
     ret
 
 .section .text.strcmp, "ax"
+.balign 4
 strcmp:
 1:
     lbu t0, 0(a0)
@@ -232,6 +250,7 @@ strcmp:
     ret
 
 .section .text.str_append, "ax"
+.balign 4
 str_append:
 1:
     lbu t0, 0(a1)
@@ -244,6 +263,7 @@ str_append:
     ret
 
 .section .text.itoa_append, "ax"
+.balign 4
 itoa_append:
     mv t0, a0
     mv t1, a1
@@ -280,6 +300,7 @@ itoa_append:
     ret
 
 .section .text.fmt_coord, "ax"
+.balign 4
 fmt_coord:
     addi sp, sp, -8
     sw ra, 0(sp)
@@ -326,6 +347,7 @@ fmt_coord:
     ret
 
 .section .text.printf, "ax"
+.balign 4
 printf:
     addi sp, sp, -52
     sw ra, 48(sp)
