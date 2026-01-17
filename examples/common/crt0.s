@@ -21,6 +21,8 @@
 .global fmt_coord
 .global printf
 .global sleep
+.global getchar
+.global read_buffer
 
 .section .text.init, "ax"
 .balign 4
@@ -105,6 +107,45 @@ puts:
     lw ra, 12(sp)
     lw s0, 8(sp)
     addi sp, sp, 16
+    ret
+
+.section .text.getchar, "ax"
+.balign 4
+getchar:
+    li a7, 26
+    ecall
+    ret
+
+.section .text.read_buffer, "ax"
+.balign 4
+read_buffer:
+    mv t1, a0
+    mv t2, a1
+    li t3, 0
+    li t5, -1
+
+    addi t4, t2, -1
+    blez t4, readloop_end
+readloop_start:
+    li a7, 26
+    ecall
+
+    beq a0, t5, readloop_end
+
+    sb a0, 0(t1)
+
+    addi t1, t1, 1
+    addi t3, t3, 1
+    addi t2, t2, -1
+
+    li t4, 1
+    ble t2, t4, readloop_end
+
+    j readloop_start
+readloop_end:
+    sb zero, 0(t1)
+    
+    mv a0, t3
     ret
 
 .section .text.poweroff, "ax"
@@ -349,75 +390,109 @@ fmt_coord:
 .section .text.printf, "ax"
 .balign 4
 printf:
-    addi sp, sp, -52
-    sw ra, 48(sp)
-    sw s0, 44(sp)
-    sw s1, 40(sp)
-    sw a1, 16(sp)
-    sw a2, 20(sp)
-    sw a3, 24(sp)
-    sw a4, 28(sp)
-    sw a5, 32(sp)
-    sw a6, 36(sp)
-    sw a7, 40(sp)
-    mv s0, a0
-    li s1, 16
-fmt_loop:
-    lbu a0, 0(s0)
-    beqz a0, fmt_end
-    li t0, 37
-    beq a0, t0, fmt_spec
-    call putchar
-    addi s0, s0, 1
-    j fmt_loop
-fmt_spec:
-    addi s0, s0, 1
-    lbu t0, 0(s0)
-    beqz t0, fmt_end
-    add t1, sp, s1
-    lw a0, 0(t1)
-    addi s1, s1, 4
-    li t1, 115
-    beq t0, t1, do_str
-    li t1, 100
-    beq t0, t1, do_int
-    li t1, 99
-    beq t0, t1, do_char
-    li t1, 120
-    beq t0, t1, do_int
-    j fmt_next
-do_str:
-    call puts_no_newline
-    j fmt_next
-do_int:
-    mv a1, a0
-    mv a0, sp
-    call itoa_append
-    sb zero, 0(a0)
-    mv a0, sp
-    call puts_no_newline
-    j fmt_next
-do_char:
-    call putchar
-    j fmt_next
-fmt_next:
-    addi s0, s0, 1
-    j fmt_loop
-fmt_end:
-    lw ra, 48(sp)
-    lw s0, 44(sp)
-    lw s1, 40(sp)
-    addi sp, sp, 52
-    ret
+    addi    sp, sp, -64
+    sw      ra, 56(sp)
+    sw      s0, 52(sp)
+    sw      s1, 48(sp)
+    sw      a1, 20(sp)
+    sw      a2, 24(sp)
+    sw      a3, 28(sp)
+    sw      a4, 32(sp)
+    sw      a5, 36(sp)
+    sw      a6, 40(sp)
+    sw      a7, 44(sp)
+    mv      s0, a0
+    addi    s1, sp, 20
 
-puts_no_newline:
-    mv t5, a0
+fmt_loop:
+    lbu     a0, 0(s0)
+    beqz    a0, fmt_end
+    addi    s0, s0, 1
+    li      t0, 37
+    beq     a0, t0, fmt_spec
+    call    putchar
+    j       fmt_loop
+
+fmt_spec:
+    lbu     t0, 0(s0)
+    beqz    t0, fmt_end
+    addi    s0, s0, 1
+    lw      a0, 0(s1)
+    addi    s1, s1, 4
+    li      t1, 115
+    beq     t0, t1, do_str
+    li      t1, 100
+    beq     t0, t1, do_int
+    li      t1, 117
+    beq     t0, t1, do_uint
+    li      t1, 120
+    beq     t0, t1, do_hex
+    j       fmt_loop
+
+do_str:
+    mv      t5, a0
+    beqz    t5, fmt_loop
 1:
-    lbu a0, 0(t5)
-    beqz a0, 2f
-    li a7, 11
-    ecall
-    addi t5, t5, 1
-    j 1b
-2:
+    lbu     a0, 0(t5)
+    beqz    a0, fmt_loop
+    addi    sp, sp, -4
+    sw      t5, 0(sp)
+    call    putchar
+    lw      t5, 0(sp)
+    addi    sp, sp, 4
+    addi    t5, t5, 1
+    j       1b
+
+do_int:
+    bge     a0, zero, do_uint
+    neg     a0, a0
+    addi    sp, sp, -4
+    sw      a0, 0(sp)
+    li      a0, 45
+    call    putchar
+    lw      a0, 0(sp)
+    addi    sp, sp, 4
+
+do_uint:
+    li      a1, 10
+    j       num_convert
+
+do_hex:
+    li      a1, 16
+    j       num_convert
+
+num_convert:
+    mv      t0, sp
+    mv      t1, t0
+
+convert_loop:
+    remu    t2, a0, a1
+    divu    a0, a0, a1
+    li      t3, 10
+    blt     t2, t3, 1f
+    addi    t2, t2, 39
+1:
+    addi    t2, t2, 48
+    sb      t2, 0(t1)
+    addi    t1, t1, 1
+    bnez    a0, convert_loop
+
+print_rev:
+    addi    t1, t1, -1
+    lbu     a0, 0(t1)
+    addi    sp, sp, -8
+    sw      t0, 0(sp)
+    sw      t1, 4(sp)
+    call    putchar
+    lw      t1, 4(sp)
+    lw      t0, 0(sp)
+    addi    sp, sp, 8
+    bne     t1, t0, print_rev
+    j       fmt_loop
+
+fmt_end:
+    lw      ra, 56(sp)
+    lw      s0, 52(sp)
+    lw      s1, 48(sp)
+    addi    sp, sp, 64
     ret

@@ -7,7 +7,7 @@ class LibGenerator:
         self.lib_costs = {}
 
     def generate(self):
-        for d in ["lib", "mem", "ecall", "debug"]:
+        for d in ["lib", "mem", "ecall", "debug", "utils", "input"]:
             os.makedirs(os.path.join(self.output_dir, d), exist_ok=True)
         self.gen_bitwise()
         self.gen_shifts()
@@ -15,6 +15,8 @@ class LibGenerator:
         self.gen_mem()
         self.gen_load_batch()
         ascii_depth = self.gen_uart()
+        self.gen_keyboard()
+        self.gen_uart_read()
         self.gen_data_loader()
         self.gen_exec_cmd()
         self.gen_read_nbt()
@@ -91,15 +93,15 @@ class LibGenerator:
             f.write(f"function {self.namespace}:lib/init_gpu\n")
 
         definitions = [
-             (0, "north", "0f,0f",      "1",  ["#ox", "#oy", "0"]),
-             (1, "south", "180f,0f",    "1",  ["0-#ox", "#oy", "0"]),
-             (2, "east",  "90f,0f",     "-1", ["0", "#oy", "#ox"]),
-             (3, "west",  "-90f,0f",    "-1", ["0", "#oy", "0-#ox"]),
-             (4, "up",    "0f,-90f",    "1",  ["#ox", "0", "0-#oy"]),
-             (5, "down",  "180f,90f",   "1",  ["0-#ox", "0", "0-#oy"])
+             (0, "north", "0f,0f",     ["#ox", "#oy", "0"]),
+             (1, "south", "180f,0f",   ["0-#ox", "#oy", "0"]),
+             (2, "east",  "90f,0f",    ["0", "#oy", "#ox"]),
+             (3, "west",  "-90f,0f",   ["0", "#oy", "0-#ox"]),
+             (4, "up",    "0f,-90f",   ["#ox", "0", "0-#oy"]),
+             (5, "down",  "180f,90f",  ["0-#ox", "0", "0-#oy"])
         ]
 
-        for fid, fname, rot, sx, axes in definitions:
+        for fid, fname, rot, axes in definitions:
             with open(os.path.join(self.output_dir, "ecall", f"screen_init_facing_{fid}.mcfunction"), 'w') as f:
                 for g in range(10):
                     for l in range(4):
@@ -169,7 +171,7 @@ class LibGenerator:
 
             with open(os.path.join(self.output_dir, "ecall", f"screen_summon_{fid}.mcfunction"), 'w') as f:
                 lines_summon = [
-                    f"$summon text_display $(xs)$(xi).$(xd1)$(xd2)$(xd3) $(ys)$(yi).$(yd1)$(yd2)$(yd3) $(zs)$(zi).$(zd1)$(zd2)$(zd3) {{Tags:[\"$(self)_screen\",\"$(self)_screen_$(screen_id)\",\"$(self)_screen_$(screen_id)_$(group)\",\"$(self)_screen_$(screen_id)_$(group)_$(layer)\"],billboard:\"fixed\",Rotation:[{rot}],transformation:{{translation:[0f,0f,0f],scale:[{sx}f,1f,1f]}},alignment:\"left\",background:0,text:'\"\"'}}"
+                    f"$summon text_display $(xs)$(xi).$(xd1)$(xd2)$(xd3) $(ys)$(yi).$(yd1)$(yd2)$(yd3) $(zs)$(zi).$(zd1)$(zd2)$(zd3) {{Tags:[\"$(self)_screen\",\"$(self)_screen_$(screen_id)\",\"$(self)_screen_$(screen_id)_$(group)\",\"$(self)_screen_$(screen_id)_$(group)_$(layer)\"],billboard:\"fixed\",Rotation:[{rot}],alignment:\"left\",background:0,text:'\"\"'}}"
                 ]
                 content = "\n".join(lines_summon).replace("$(self)", self.namespace)
                 f.write(content + "\n")
@@ -465,6 +467,7 @@ class LibGenerator:
         all_chars = [(chr(i), i) for i in range(32, 127)]
         all_chars.sort(key=lambda x: x[1])
         return generate_tree(all_chars, "map")
+    
     def gen_uart(self):
         ascii_depth = self.gen_ascii_map()
         
@@ -492,6 +495,94 @@ class LibGenerator:
         self.lib_costs["lib/uart_putc"] = len(lines_putc) + 2
         
         return ascii_depth
+
+    def gen_keyboard(self):
+        with open(os.path.join(self.output_dir, "utils", "get_input_book.mcfunction"), 'w') as f:
+            f.write(f'give @s writable_book[custom_data={{{self.namespace}_keyboard:1b}},item_name=\'{{"text":"UART Keyboard","italic":false,"color":"gold"}}\']\n')
+
+        lines_tick = [
+            f'execute as @a[nbt={{Inventory:[{{Slot:-106b,components:{{"minecraft:custom_data":{{{self.namespace}_keyboard:1b}}}}}}]}}] run function {self.namespace}:input/check_hand'
+        ]
+        with open(os.path.join(self.output_dir, "input", "tick.mcfunction"), 'w') as f:
+            f.write("\n".join(lines_tick) + "\n")
+
+        lines_check = [
+            f'data modify storage {self.namespace}:io temp_page set from entity @s Inventory[{{Slot:-106b}}].components."minecraft:writable_book_content".pages[0].raw',
+            f'execute unless data storage {self.namespace}:io temp_page run return 0',
+            f'execute if data storage {self.namespace}:io {{temp_page:""}} run return 0',
+            f'clear @s writable_book[custom_data={{{self.namespace}_keyboard:1b}}] 1',
+            f'item replace entity @s weapon.offhand with writable_book[custom_data={{{self.namespace}_keyboard:1b}},item_name=\'{{"text":"UART Keyboard","italic":false,"color":"gold"}}\',writable_book_content={{pages:[]}}]',
+            f'function {self.namespace}:input/process_page',
+            f'data modify storage {self.namespace}:io temp_page set value ""',
+        ]
+        with open(os.path.join(self.output_dir, "input", "check_hand.mcfunction"), 'w') as f:
+            f.write("\n".join(lines_check) + "\n")
+
+        lines_process = [
+            f'data modify storage {self.namespace}:io input_buf set from storage {self.namespace}:io temp_page',
+            f'function {self.namespace}:input/parse_loop'
+        ]
+        with open(os.path.join(self.output_dir, "input", "process_page.mcfunction"), 'w') as f:
+            f.write("\n".join(lines_process) + "\n")
+
+        lines_loop = [
+            f'execute store result score #len {self.namespace}_temp run data get storage {self.namespace}:io input_buf',
+            f'execute if score #len {self.namespace}_temp matches 0 run return 0',
+            f'function {self.namespace}:input/extract_char',
+            f'function {self.namespace}:input/char_to_int',
+            f'function {self.namespace}:input/buffer_write',
+            f'function {self.namespace}:input/parse_loop'
+        ]
+        with open(os.path.join(self.output_dir, "input", "parse_loop.mcfunction"), 'w') as f:
+            f.write("\n".join(lines_loop) + "\n")
+
+        lines_extract = [
+            f'data modify storage {self.namespace}:io char_str set string storage {self.namespace}:io input_buf 0 1',
+            f'data modify storage {self.namespace}:io input_buf set string storage {self.namespace}:io input_buf 1'
+        ]
+        with open(os.path.join(self.output_dir, "input", "extract_char.mcfunction"), 'w') as f:
+            f.write("\n".join(lines_extract) + "\n")
+
+        lines_write = [
+            f'data modify storage {self.namespace}:uart rx_buf append from storage {self.namespace}:io char_val'
+        ]
+        with open(os.path.join(self.output_dir, "input", "buffer_write.mcfunction"), 'w') as f:
+            f.write("\n".join(lines_write) + "\n")
+
+        lines_c2i = [f'data modify storage {self.namespace}:io char_val set value 10']
+
+        for i in range(32, 127):
+            char_literal = chr(i)
+            if char_literal == '"':
+                match_str = "'" + '"' + "'"
+            elif char_literal == "'":
+                match_str = '"' + "'" + '"'
+            elif char_literal == "\\":
+                match_str = '"\\\\"'
+            else:
+                match_str = f'"{char_literal}"'
+            
+            lines_c2i.append(f'execute if data storage {self.namespace}:io {{char_str:{match_str}}} run data modify storage {self.namespace}:io char_val set value {i}')
+        
+        with open(os.path.join(self.output_dir, "input", "char_to_int.mcfunction"), 'w') as f:
+            f.write("\n".join(lines_c2i) + "\n")
+    
+    def gen_uart_read(self):
+        lines_getc = [
+            f"scoreboard players set x10 {self.namespace}_reg -1",
+            f"execute if data storage {self.namespace}:uart rx_buf[0] run function {self.namespace}:lib/uart_pop_byte"
+        ]
+        with open(os.path.join(self.output_dir, "lib", "uart_getc.mcfunction"), 'w') as f:
+            f.write("\n".join(lines_getc) + "\n")
+        
+        lines_pop = [
+            f"execute store result score x10 {self.namespace}_reg run data get storage {self.namespace}:uart rx_buf[0]",
+            f"data remove storage {self.namespace}:uart rx_buf[0]"
+        ]
+        with open(os.path.join(self.output_dir, "lib", "uart_pop_byte.mcfunction"), 'w') as f:
+            f.write("\n".join(lines_pop) + "\n")
+
+        self._register_cost("lib/uart_getc", lines_getc)
 
     def gen_math(self):
         mul_lines = []
@@ -986,6 +1077,7 @@ class LibGenerator:
             f.write(f"execute if score x17 {self.namespace}_reg matches 23 run function {self.namespace}:ecall/screen_flush\n")
             f.write(f"execute if score x17 {self.namespace}_reg matches 24 run function {self.namespace}:ecall/screen_init\n")
             f.write(f"execute if score x17 {self.namespace}_reg matches 25 run function {self.namespace}:ecall/sleep\n")
+            f.write(f"execute if score x17 {self.namespace}_reg matches 26 run function {self.namespace}:lib/uart_getc\n")
             f.write(f"execute if score x17 {self.namespace}_reg matches 93 run function {self.namespace}:debug/dump_inline\n")
             f.write(f"execute if score x17 {self.namespace}_reg matches 10 run scoreboard players set #halt {self.namespace}_temp 1\n")
         

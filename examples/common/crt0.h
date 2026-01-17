@@ -31,6 +31,8 @@ void screen_flush(int screen_id, void* vram);
 int read_nbt(const char* source, const char* path);
 void write_nbt(const char* target, const char* path, int value);
 void sleep(int ticks);
+int getchar(void);
+int read_buffer(char *buf, int max_len);
 
 #define SCREEN_FACING_NORTH 0
 #define SCREEN_FACING_SOUTH 1

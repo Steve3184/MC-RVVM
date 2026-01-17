@@ -99,11 +99,39 @@ int test_ecalls() {
 }
 
 int test_sleep_ecall() {
-    printf("Testing Sleep Ecall (Wait 80 ticks/4s)...\n");
-    printf("Start sleep...\n");
-    sleep(80);
-    printf("Wake up after sleep!\n");
+    printf("Testing Sleep Ecall (Wait 20 ticks/1s)...\n");
+    sleep(20);
     return 1;
+}
+
+int test_input_polling() {
+    printf("\n=== Input Test ===\n");
+    printf("Please type: hello world!\n");
+    printf("Waiting for input (Polling)...\n");
+
+    char buffer[128];
+    
+    while (1) {
+        sleep(1); 
+
+        int first_char = getchar();
+
+        if (first_char != -1) {
+            buffer[0] = (char)first_char;
+
+            int rest_count = read_buffer(&buffer[1], 126);
+
+            printf("Received Input: '%s'\n", buffer);
+
+            if (strcmp(buffer, "hello world!") == 0) {
+                return 1;
+            } else {
+                printf("Input mismatch! Expected 'hello world!', got '%s'\n", buffer);
+                printf("Please try again...\n");
+                return 0; 
+            }
+        }
+    }
 }
 
 int main() {
@@ -115,6 +143,7 @@ int main() {
     print_test_result("Fast Builders", test_fast_builders());
     print_test_result("Ecalls (NBT/IO)", test_ecalls());
     print_test_result("Sleep Mechanism", test_sleep_ecall());
+    print_test_result("Input", test_input_polling());
 
     printf("\n=== All Tests Finished ===\n");
     

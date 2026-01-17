@@ -169,20 +169,20 @@ def main():
         f.write(f"scoreboard players set #sleep_ticks {args.namespace}_temp 0\n")
         f.write(f"scoreboard players set #ipt_count {args.namespace}_temp 0\n")
         f.write(f"data modify storage {args.namespace}:uart buffer set value []\n")
+        f.write(f"data modify storage {args.namespace}:uart rx_buf set value []\n")
         f.write(f"data merge storage {args.namespace}:io {{}}\n")
         f.write(f"function {args.namespace}:mem/load_data\n")
         f.write(f"function {args.namespace}:load_extra_data\n")
         f.write("tellraw @a [{\"text\":\"[MC-RVVM] VM Reset.\",\"color\":\"yellow\"}]\n")
     
     with open(os.path.join(data_dir, "tick.mcfunction"), 'w') as f:
-        # Improved atomic sleep logic
+        f.write(f"function {args.namespace}:input/tick\n")
         f.write(f"scoreboard players set #is_sleeping {args.namespace}_temp 0\n")
         f.write(f"execute if score #sleep_ticks {args.namespace}_temp matches 1.. run scoreboard players set #is_sleeping {args.namespace}_temp 1\n")
         f.write(f"execute if score #is_sleeping {args.namespace}_temp matches 1 run scoreboard players remove #sleep_ticks {args.namespace}_temp 1\n")
         f.write(f"execute if score #is_sleeping {args.namespace}_temp matches 1 run return 0\n")
         
         f.write(f"scoreboard players set #ipt_count {args.namespace}_temp {ipt}\n")
-        # Drive loop: call dispatcher until IPT is exhausted or VM stops
         loop_count = 10 if args.optimize else 300
         for _ in range(loop_count):
             f.write(f"execute if score #ipt_count {args.namespace}_temp matches 1.. if score #sleep_ticks {args.namespace}_temp matches ..0 unless score #halt {args.namespace}_temp matches 1 run function {args.namespace}:dispatch/root\n")
