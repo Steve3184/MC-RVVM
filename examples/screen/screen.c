@@ -1,8 +1,5 @@
 #include "crt0.h"
 
-#define SCREEN_W 48
-#define SCREEN_H 40
-
 uint16_t vram[SCREEN_W * SCREEN_H];
 
 void draw_pixel(int x, int y, int color) {
@@ -33,20 +30,12 @@ void draw_line(int x0, int y0, int x1, int y1, int color) {
     }
 }
 
-int main() {
-    printf("Screen Test...\n");
-    printf("screen_init(10, -57, 11)\n");
-    screen_init(10, -57, 11);
-    
-    printf("Clearing screen and flushing...\n");
-    clear_screen(0x000);
-    screen_flush(vram);
-    
+void test_pattern(int color_offset) {
     for (int y = 0; y < SCREEN_H; y++) {
         for (int x = 0; x < SCREEN_W; x++) {
             int r = (x * 15) / SCREEN_W;
             int g = (y * 15) / SCREEN_H;
-            int b = 8;
+            int b = (color_offset % 16);
             draw_pixel(x, y, (r << 8) | (g << 4) | b);
         }
     }
@@ -63,9 +52,34 @@ int main() {
         draw_pixel(10, i, box_color);
         draw_pixel(38, i, box_color);
     }
+}
 
-    printf("Drawing pattern and flushing...\n");
-    screen_flush(vram);
+int main() {
+    printf("Screen Multi-Facing Test...\n");
+    int screen_id = 0;
+    int x = 10, y = -55, z = 10;
+
+    int facings[] = {
+        SCREEN_FACING_NORTH,
+        SCREEN_FACING_SOUTH,
+        SCREEN_FACING_EAST,
+        SCREEN_FACING_WEST,
+        SCREEN_FACING_UP,
+        SCREEN_FACING_DOWN
+    };
+    const char* names[] = {"NORTH", "SOUTH", "EAST", "WEST", "UP", "DOWN"};
+
+    for (int i = 0; i < 6; i++) {
+        printf("Testing Facing: %s\n", names[i]);
+        screen_init(screen_id, facings[i], x, y, z);
+        
+        clear_screen(0x000);
+        test_pattern(i * 2);
+        
+        screen_flush(screen_id, vram);
+        printf("Flushed %s. Sleeping 60 ticks...\n", names[i]);
+        sleep(60);
+    }
     
     printf("Done.\n");
     halt();

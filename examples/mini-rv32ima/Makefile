@@ -33,7 +33,7 @@ $(TARGET).bin: $(TARGET).elf
 	$(OBJCOPY) -O binary $< $@
 
 transpile: $(TARGET).bin
-	$(PYTHON) $(MAIN_PY) $< $(DATAPACK_DIR) --map_file $(TARGET).map --optimize
+	$(PYTHON) $(MAIN_PY) $< $(DATAPACK_DIR) --map_file $(TARGET).map --optimize --ipt 3200
 
 clean:
 	rm -f *.elf *.bin *.map bintoh dtb_data.h

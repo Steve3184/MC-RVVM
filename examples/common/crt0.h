@@ -26,10 +26,19 @@ void _exec_cmd_1024(const char* cmd);
 void _exec_cmd_2048(const char* cmd);
 void _exec_cmd_3072(const char* cmd);
 void _exec_cmd_4096(const char* cmd);
-void screen_init(int x, int y, int z);
-void screen_flush(void* vram);
+void screen_init(int screen_id, int facing, int x, int y, int z);
+void screen_flush(int screen_id, void* vram);
 int read_nbt(const char* source, const char* path);
 void write_nbt(const char* target, const char* path, int value);
 void sleep(int ticks);
+
+#define SCREEN_FACING_NORTH 0
+#define SCREEN_FACING_SOUTH 1
+#define SCREEN_FACING_EAST 2
+#define SCREEN_FACING_WEST 3
+#define SCREEN_FACING_UP 4
+#define SCREEN_FACING_DOWN 5
+#define SCREEN_W 48
+#define SCREEN_H 40
 
 #endif

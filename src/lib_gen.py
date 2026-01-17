@@ -66,91 +66,128 @@ class LibGenerator:
         with open(os.path.join(self.output_dir, "lib", "init_gpu.mcfunction"), 'w') as f:
             f.write("\n".join(palette_lines) + "\n")
 
+        with open(os.path.join(self.output_dir, "ecall", "screen_kill_old.mcfunction"), 'w') as f:
+            f.write(f"$kill @e[type=text_display,tag={self.namespace}_screen_$(screen_id)]\n")
+
         with open(os.path.join(self.output_dir, "ecall", "screen_init.mcfunction"), 'w') as f:
-            f.write("kill @e[type=text_display,tag=%s_screen]\n" % self.namespace)
+            f.write(f"execute store result storage {self.namespace}:io screen_id int 1 run scoreboard players get x10 {self.namespace}_reg\n")
+            f.write(f"execute store result score #sid {self.namespace}_temp run scoreboard players get x10 {self.namespace}_reg\n")
+            f.write(f"execute store result score #facing {self.namespace}_temp run scoreboard players get x11 {self.namespace}_reg\n")
+            
+            f.write(f"execute store result score #base_x {self.namespace}_temp run scoreboard players get x12 {self.namespace}_reg\n")
+            f.write(f"execute store result score #base_y {self.namespace}_temp run scoreboard players get x13 {self.namespace}_reg\n")
+            f.write(f"execute store result score #base_z {self.namespace}_temp run scoreboard players get x14 {self.namespace}_reg\n")
+
+            f.write(f"function {self.namespace}:ecall/screen_kill_old with storage {self.namespace}:io\n")
+
             f.write(f"scoreboard players set #scale {self.namespace}_temp 1000\n")
             f.write(f"scoreboard players set #c_100 {self.namespace}_temp 100\n")
             f.write(f"scoreboard players set #c_10 {self.namespace}_temp 10\n")
             f.write(f"scoreboard players set #minus_one {self.namespace}_temp -1\n")
             
-            for g in range(10):
-                for l in range(4):
-                    ox, oy = (0, 0)
-                    if l == 1: ox = 25
-                    if l == 2: oy = -25
-                    if l == 3: ox, oy = 25, -25
-                    
-                    group_base_idx = g // 2
-                    group_offset = group_base_idx * -50
-                    total_oy = oy + group_offset
-                    f.write(f"data modify storage {self.namespace}:io layer set value {l}\n")
-                    f.write(f"data modify storage {self.namespace}:io group set value {g}\n")
-                    f.write(f"scoreboard players set #ox {self.namespace}_temp {ox}\n")
-                    f.write(f"scoreboard players set #oy {self.namespace}_temp {total_oy}\n")
-                    
-                    f.write(f"function {self.namespace}:ecall/screen_calc_pos\n")
-                    f.write(f"function {self.namespace}:ecall/screen_summon_entity with storage {self.namespace}:io\n")
+            for i in range(6):
+                f.write(f"execute if score #facing {self.namespace}_temp matches {i} run function {self.namespace}:ecall/screen_init_facing_{i}\n")
             
             f.write(f"function {self.namespace}:lib/init_gpu\n")
-        
-        with open(os.path.join(self.output_dir, "ecall", "screen_calc_pos.mcfunction"), 'w') as f:
-            f.write(f"scoreboard players set #scale {self.namespace}_temp 1000\n")
-            f.write(f"scoreboard players set #c_100 {self.namespace}_temp 100\n")
-            f.write(f"scoreboard players set #c_10 {self.namespace}_temp 10\n")
-            f.write(f"scoreboard players set #minus_one {self.namespace}_temp -1\n")
 
-            def write_axis_calc(axis_prefix, reg_name, offset_var=None):
-                f.write(f'data modify storage {self.namespace}:io {axis_prefix}s set value ""\n')
-                f.write(f"execute store result score #val {self.namespace}_temp run scoreboard players get {reg_name} {self.namespace}_reg\n")
-                f.write(f"scoreboard players operation #val {self.namespace}_temp *= #scale {self.namespace}_temp\n")
-                if offset_var:
-                    f.write(f"scoreboard players operation #val {self.namespace}_temp += {offset_var} {self.namespace}_temp\n")
-                
-                f.write(f'execute if score #val {self.namespace}_temp matches ..-1 run data modify storage {self.namespace}:io {axis_prefix}s set value "-"\n')
-                f.write(f"execute if score #val {self.namespace}_temp matches ..-1 run scoreboard players operation #val {self.namespace}_temp *= #minus_one {self.namespace}_temp\n")
-                
-                f.write(f"scoreboard players operation #int_part {self.namespace}_temp = #val {self.namespace}_temp\n")
-                f.write(f"scoreboard players operation #int_part {self.namespace}_temp /= #scale {self.namespace}_temp\n")
-                f.write(f"execute store result storage {self.namespace}:io {axis_prefix}i int 1 run scoreboard players get #int_part {self.namespace}_temp\n")
+        definitions = [
+             (0, "north", "0f,0f",      "1",  ["#ox", "#oy", "0"]),
+             (1, "south", "180f,0f",    "1",  ["0-#ox", "#oy", "0"]),
+             (2, "east",  "90f,0f",     "-1", ["0", "#oy", "#ox"]),
+             (3, "west",  "-90f,0f",    "-1", ["0", "#oy", "0-#ox"]),
+             (4, "up",    "0f,-90f",    "1",  ["#ox", "0", "0-#oy"]),
+             (5, "down",  "180f,90f",   "1",  ["0-#ox", "0", "0-#oy"])
+        ]
 
-                f.write(f"scoreboard players operation #dec_part {self.namespace}_temp = #val {self.namespace}_temp\n")
-                f.write(f"scoreboard players operation #dec_part {self.namespace}_temp %= #scale {self.namespace}_temp\n")
-                
-                f.write(f"scoreboard players operation #d1 {self.namespace}_temp = #dec_part {self.namespace}_temp\n")
-                f.write(f"scoreboard players operation #d1 {self.namespace}_temp /= #c_100 {self.namespace}_temp\n")
-                f.write(f"execute store result storage {self.namespace}:io {axis_prefix}d1 int 1 run scoreboard players get #d1 {self.namespace}_temp\n")
-                
-                f.write(f"scoreboard players operation #d2 {self.namespace}_temp = #dec_part {self.namespace}_temp\n")
-                f.write(f"scoreboard players operation #d2 {self.namespace}_temp %= #c_100 {self.namespace}_temp\n")
-                f.write(f"scoreboard players operation #d2 {self.namespace}_temp /= #c_10 {self.namespace}_temp\n")
-                f.write(f"execute store result storage {self.namespace}:io {axis_prefix}d2 int 1 run scoreboard players get #d2 {self.namespace}_temp\n")
-                
-                f.write(f"scoreboard players operation #d3 {self.namespace}_temp = #dec_part {self.namespace}_temp\n")
-                f.write(f"scoreboard players operation #d3 {self.namespace}_temp %= #c_10 {self.namespace}_temp\n")
-                f.write(f"execute store result storage {self.namespace}:io {axis_prefix}d3 int 1 run scoreboard players get #d3 {self.namespace}_temp\n")
+        for fid, fname, rot, sx, axes in definitions:
+            with open(os.path.join(self.output_dir, "ecall", f"screen_init_facing_{fid}.mcfunction"), 'w') as f:
+                for g in range(10):
+                    for l in range(4):
+                        ox, oy = (0, 0)
+                        if l == 1: ox = 25
+                        if l == 2: oy = -25
+                        if l == 3: ox, oy = 25, -25
+                        
+                        group_base_idx = g // 2
+                        group_offset = group_base_idx * -50
+                        total_oy = oy + group_offset 
+                        
+                        f.write(f"data modify storage {self.namespace}:io layer set value {l}\n")
+                        f.write(f"data modify storage {self.namespace}:io group set value {g}\n")
+                        f.write(f"scoreboard players set #ox {self.namespace}_temp {ox}\n")
+                        f.write(f"scoreboard players set #oy {self.namespace}_temp {total_oy}\n")
+                        
+                        f.write(f"function {self.namespace}:ecall/screen_calc_pos_{fid}\n")
+                        f.write(f"function {self.namespace}:ecall/screen_summon_{fid} with storage {self.namespace}:io\n")
 
-            write_axis_calc("x", "x10", "#ox")
-            write_axis_calc("y", "x11", "#oy")
-            write_axis_calc("z", "x12", None)
+            with open(os.path.join(self.output_dir, "ecall", f"screen_calc_pos_{fid}.mcfunction"), 'w') as f:
+                f.write(f"scoreboard players set #scale {self.namespace}_temp 1000\n")
+                f.write(f"scoreboard players set #c_100 {self.namespace}_temp 100\n")
+                f.write(f"scoreboard players set #c_10 {self.namespace}_temp 10\n")
+                f.write(f"scoreboard players set #minus_one {self.namespace}_temp -1\n")
+                
+                def write_axis_calc(axis_prefix, base_var, offset_expr):
+                    f.write(f'data modify storage {self.namespace}:io {axis_prefix}s set value ""\n')
+                    f.write(f"scoreboard players operation #val {self.namespace}_temp = {base_var} {self.namespace}_temp\n")
+                    f.write(f"scoreboard players operation #val {self.namespace}_temp *= #scale {self.namespace}_temp\n")
+                        
+                    if offset_expr == "#ox":
+                        f.write(f"scoreboard players operation #val {self.namespace}_temp += #ox {self.namespace}_temp\n")
+                    elif offset_expr == "#oy":
+                        f.write(f"scoreboard players operation #val {self.namespace}_temp += #oy {self.namespace}_temp\n")
+                    elif offset_expr == "0-#ox":
+                        f.write(f"scoreboard players operation #val {self.namespace}_temp -= #ox {self.namespace}_temp\n")
+                    elif offset_expr == "0-#oy":
+                        f.write(f"scoreboard players operation #val {self.namespace}_temp -= #oy {self.namespace}_temp\n")
+                    
+                    f.write(f'execute if score #val {self.namespace}_temp matches ..-1 run data modify storage {self.namespace}:io {axis_prefix}s set value "-"\n')
+                    f.write(f"execute if score #val {self.namespace}_temp matches ..-1 run scoreboard players operation #val {self.namespace}_temp *= #minus_one {self.namespace}_temp\n")
+                    
+                    f.write(f"scoreboard players operation #int_part {self.namespace}_temp = #val {self.namespace}_temp\n")
+                    f.write(f"scoreboard players operation #int_part {self.namespace}_temp /= #scale {self.namespace}_temp\n")
+                    f.write(f"execute store result storage {self.namespace}:io {axis_prefix}i int 1 run scoreboard players get #int_part {self.namespace}_temp\n")
 
-        with open(os.path.join(self.output_dir, "ecall", "screen_summon_entity.mcfunction"), 'w') as f:
-            lines_summon = [
-                "$summon text_display $(xs)$(xi).$(xd1)$(xd2)$(xd3) $(ys)$(yi).$(yd1)$(yd2)$(yd3) $(zs)$(zi).$(zd1)$(zd2)$(zd3) {Tags:[\"$(self)_screen\",\"$(self)_screen_$(group)\",\"$(self)_screen_$(group)_$(layer)\"],billboard:\"fixed\",alignment:\"left\",background:0,text:'\"\"'}"
-            ]
-            content = "\n".join(lines_summon).replace("$(self)", self.namespace)
-            f.write(content + "\n")
+                    f.write(f"scoreboard players operation #dec_part {self.namespace}_temp = #val {self.namespace}_temp\n")
+                    f.write(f"scoreboard players operation #dec_part {self.namespace}_temp %= #scale {self.namespace}_temp\n")
+                    
+                    f.write(f"scoreboard players operation #d1 {self.namespace}_temp = #dec_part {self.namespace}_temp\n")
+                    f.write(f"scoreboard players operation #d1 {self.namespace}_temp /= #c_100 {self.namespace}_temp\n")
+                    f.write(f"execute store result storage {self.namespace}:io {axis_prefix}d1 int 1 run scoreboard players get #d1 {self.namespace}_temp\n")
+                    
+                    f.write(f"scoreboard players operation #d2 {self.namespace}_temp = #dec_part {self.namespace}_temp\n")
+                    f.write(f"scoreboard players operation #d2 {self.namespace}_temp %= #c_100 {self.namespace}_temp\n")
+                    f.write(f"scoreboard players operation #d2 {self.namespace}_temp /= #c_10 {self.namespace}_temp\n")
+                    f.write(f"execute store result storage {self.namespace}:io {axis_prefix}d2 int 1 run scoreboard players get #d2 {self.namespace}_temp\n")
+                    
+                    f.write(f"scoreboard players operation #d3 {self.namespace}_temp = #dec_part {self.namespace}_temp\n")
+                    f.write(f"scoreboard players operation #d3 {self.namespace}_temp %= #c_10 {self.namespace}_temp\n")
+                    f.write(f"execute store result storage {self.namespace}:io {axis_prefix}d3 int 1 run scoreboard players get #d3 {self.namespace}_temp\n")
+                    
+                write_axis_calc("x", "#base_x", axes[0])
+                write_axis_calc("y", "#base_y", axes[1])
+                write_axis_calc("z", "#base_z", axes[2])
+
+            with open(os.path.join(self.output_dir, "ecall", f"screen_summon_{fid}.mcfunction"), 'w') as f:
+                lines_summon = [
+                    f"$summon text_display $(xs)$(xi).$(xd1)$(xd2)$(xd3) $(ys)$(yi).$(yd1)$(yd2)$(yd3) $(zs)$(zi).$(zd1)$(zd2)$(zd3) {{Tags:[\"$(self)_screen\",\"$(self)_screen_$(screen_id)\",\"$(self)_screen_$(screen_id)_$(group)\",\"$(self)_screen_$(screen_id)_$(group)_$(layer)\"],billboard:\"fixed\",Rotation:[{rot}],transformation:{{translation:[0f,0f,0f],scale:[{sx}f,1f,1f]}},alignment:\"left\",background:0,text:'\"\"'}}"
+                ]
+                content = "\n".join(lines_summon).replace("$(self)", self.namespace)
+                f.write(content + "\n")
 
         with open(os.path.join(self.output_dir, "ecall", "screen_flush_apply.mcfunction"), 'w') as f:
             for g in range(10):
                 for l in range(4):
-                    f.write(f"data modify entity @e[type=text_display,tag={self.namespace}_screen_{g}_{l},limit=1] text set value '\"\"'\n")
-                    f.write(f"$execute if data storage {self.namespace}:gpu buf_{g}_{l}[0] run data modify entity @e[type=text_display,tag={self.namespace}_screen_{g}_{l},limit=1] text set value '$(buf_{g}_{l})'\n")
+                    f.write(f"$data modify entity @e[type=text_display,tag={self.namespace}_screen_$(screen_id)_{g}_{l},limit=1] text set value '\"\"'\n")
+                    f.write(f"$execute if data storage {self.namespace}:gpu buf_{g}_{l}[0] run data modify entity @e[type=text_display,tag={self.namespace}_screen_$(screen_id)_{g}_{l},limit=1] text set value '$(buf_{g}_{l})'\n")
 
         with open(os.path.join(self.output_dir, "ecall", "screen_flush.mcfunction"), 'w') as f:
             for g in range(10):
                 for l in range(4):
                     f.write(f"data modify storage {self.namespace}:gpu buf_{g}_{l} set value []\n")
-            f.write(f"scoreboard players operation #addr {self.namespace}_temp = x10 {self.namespace}_reg\n")
+            
+            f.write(f"execute store result storage {self.namespace}:gpu screen_id int 1 run scoreboard players get x10 {self.namespace}_reg\n")
+            f.write(f"scoreboard players operation #addr {self.namespace}_temp = x11 {self.namespace}_reg\n")
+            
             f.write(f"scoreboard players set #curr_y {self.namespace}_temp 0\n")
             f.write(f"function {self.namespace}:ecall/screen_flush_row\n")
             f.write(f"function {self.namespace}:ecall/screen_flush_apply with storage {self.namespace}:gpu\n")
