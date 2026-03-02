@@ -799,12 +799,21 @@ class LibGenerator:
                             f.write(f"execute if score #old_res {self.namespace}_temp matches ..-1 if score #rem {self.namespace}_temp matches -1 run scoreboard players remove #res {self.namespace}_temp 1\n")
 
     def gen_mem(self):
+        def s32(val):
+            val &= 0xFFFFFFFF
+            if val >= 0x80000000:
+                val -= 0x100000000
+            return val
+
+        SOCKET_BASE = s32(0xfd0a0000) >> 2
+        SOCKET_END  = SOCKET_BASE + 135
+
         with open(os.path.join(self.output_dir, "mem", "init.mcfunction"), 'w') as f:
+            zeros = ",".join(["0"] * 136)
             f.write(f"data modify storage {self.namespace}:ram data set value [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]\n")
-            # 16 * 2^18 = 4,194,304 words (16MB)
             for _ in range(18):
                 f.write(f"data modify storage {self.namespace}:ram data append from storage {self.namespace}:ram data[]\n")
-            
+            f.write(f"data modify storage {self.namespace}:ram data_socket set value [I;{zeros}]\n")
             f.write(f"data modify storage {self.namespace}:safe_ram data set value [0,0,0,0,0,0,0,0]\n")
             for _ in range(16):
                 f.write(f"data modify storage {self.namespace}:safe_ram data append from storage {self.namespace}:safe_ram data[]\n")
@@ -812,100 +821,257 @@ class LibGenerator:
             f.write(f"function {self.namespace}:lib/init_nbt_template\n")
             f.write(f"function {self.namespace}:lib/init_cmd_template\n")
 
-        def gen_u_div(f, n):
-            f.write(f"execute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp -= #min_int {self.namespace}_const\n")
-            f.write(f"scoreboard players operation #w {self.namespace}_temp /= #p_{n} {self.namespace}_const\n")
-            f.write(f"execute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp += #p_{31-n} {self.namespace}_const\n")
+        with open(os.path.join(self.output_dir, "mem", "read_lw.mcfunction"), 'w') as f:
+            f.write(f"execute if score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/read_lw_socket\n")
+            f.write(f"execute unless score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/read_lw_ram with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lw_ram.mcfunction"), 'w') as f:
+            f.write(f"$execute store result score #res {self.namespace}_temp run data get storage {self.namespace}:ram data[$(addr)]\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lw_socket.mcfunction"), 'w') as f:
+            f.write(f"scoreboard players operation #socket_idx {self.namespace}_temp = #addr_word {self.namespace}_temp\n")
+            f.write(f"scoreboard players add #socket_idx {self.namespace}_temp {-SOCKET_BASE}\n")
+            f.write(f"execute store result storage {self.namespace}:io addr int 1 run scoreboard players get #socket_idx {self.namespace}_temp\n")
+            f.write(f"function {self.namespace}:mem/read_lw_socket_macro with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lw_socket_macro.mcfunction"), 'w') as f:
+            f.write(f"$execute store result score #res {self.namespace}_temp run data get storage {self.namespace}:ram data_socket[$(addr)]\n")
 
         with open(os.path.join(self.output_dir, "mem", "read_lb.mcfunction"), 'w') as f:
+            f.write(f"execute if score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/read_lb_socket\n")
+            f.write(f"execute unless score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/read_lb_ram with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lb_ram.mcfunction"), 'w') as f:
             f.write(f"$execute store result score #w {self.namespace}_temp run data get storage {self.namespace}:ram data[$(addr)]\n")
             f.write(f"scoreboard players set #shift {self.namespace}_temp 0\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches 1 run scoreboard players set #shift {self.namespace}_temp 8\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches 2 run scoreboard players set #shift {self.namespace}_temp 16\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches 3 run scoreboard players set #shift {self.namespace}_temp 24\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -3 run scoreboard players set #shift {self.namespace}_temp 8\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -2 run scoreboard players set #shift {self.namespace}_temp 16\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -1 run scoreboard players set #shift {self.namespace}_temp 24\n")
-            
-            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function %s:mem/u_div\n" % self.namespace)
-            f.write(f"scoreboard players operation #w {self.namespace}_temp %= #p_8 {self.namespace}_const\nexecute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp += #p_8 {self.namespace}_const\nexecute if score #w {self.namespace}_temp matches 128..255 run scoreboard players remove #w {self.namespace}_temp 256\nscoreboard players operation #res {self.namespace}_temp = #w {self.namespace}_temp\n")
-        
+            for pos, shift in [(1,8),(2,16),(3,24),(-3,8),(-2,16),(-1,24)]:
+                f.write(f"execute if score #off {self.namespace}_temp matches {pos} run scoreboard players set #shift {self.namespace}_temp {shift}\n")
+            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function {self.namespace}:mem/u_div\n")
+            f.write(f"scoreboard players operation #w {self.namespace}_temp %= #p_8 {self.namespace}_const\n"
+                    f"execute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp += #p_8 {self.namespace}_const\n"
+                    f"execute if score #w {self.namespace}_temp matches 128..255 run scoreboard players remove #w {self.namespace}_temp 256\n"
+                    f"scoreboard players operation #res {self.namespace}_temp = #w {self.namespace}_temp\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lb_socket.mcfunction"), 'w') as f:
+            f.write(f"scoreboard players operation #socket_idx {self.namespace}_temp = #addr_word {self.namespace}_temp\n")
+            f.write(f"scoreboard players add #socket_idx {self.namespace}_temp {-SOCKET_BASE}\n")
+            f.write(f"execute store result storage {self.namespace}:io addr int 1 run scoreboard players get #socket_idx {self.namespace}_temp\n")
+            f.write(f"function {self.namespace}:mem/read_lb_socket_macro with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lb_socket_macro.mcfunction"), 'w') as f:
+            f.write(f"$execute store result score #w {self.namespace}_temp run data get storage {self.namespace}:ram data_socket[$(addr)]\n")
+            f.write(f"scoreboard players set #shift {self.namespace}_temp 0\n")
+            for pos, shift in [(1,8),(2,16),(3,24),(-3,8),(-2,16),(-1,24)]:
+                f.write(f"execute if score #off {self.namespace}_temp matches {pos} run scoreboard players set #shift {self.namespace}_temp {shift}\n")
+            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function {self.namespace}:mem/u_div\n")
+            f.write(f"scoreboard players operation #w {self.namespace}_temp %= #p_8 {self.namespace}_const\n"
+                    f"execute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp += #p_8 {self.namespace}_const\n"
+                    f"execute if score #w {self.namespace}_temp matches 128..255 run scoreboard players remove #w {self.namespace}_temp 256\n"
+                    f"scoreboard players operation #res {self.namespace}_temp = #w {self.namespace}_temp\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lbu.mcfunction"), 'w') as f:
+            f.write(f"execute if score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/read_lbu_socket\n")
+            f.write(f"execute unless score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/read_lbu_ram with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lbu_ram.mcfunction"), 'w') as f:
+            f.write(f"$execute store result score #w {self.namespace}_temp run data get storage {self.namespace}:ram data[$(addr)]\n")
+            f.write(f"scoreboard players set #shift {self.namespace}_temp 0\n")
+            for pos, shift in [(1,8),(2,16),(3,24),(-3,8),(-2,16),(-1,24)]:
+                f.write(f"execute if score #off {self.namespace}_temp matches {pos} run scoreboard players set #shift {self.namespace}_temp {shift}\n")
+            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function {self.namespace}:mem/u_div\n")
+            f.write(f"scoreboard players operation #w {self.namespace}_temp %= #p_8 {self.namespace}_const\n"
+                    f"execute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp += #p_8 {self.namespace}_const\n"
+                    f"scoreboard players operation #res {self.namespace}_temp = #w {self.namespace}_temp\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lbu_socket.mcfunction"), 'w') as f:
+            f.write(f"scoreboard players operation #socket_idx {self.namespace}_temp = #addr_word {self.namespace}_temp\n")
+            f.write(f"scoreboard players add #socket_idx {self.namespace}_temp {-SOCKET_BASE}\n")
+            f.write(f"execute store result storage {self.namespace}:io addr int 1 run scoreboard players get #socket_idx {self.namespace}_temp\n")
+            f.write(f"function {self.namespace}:mem/read_lbu_socket_macro with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lbu_socket_macro.mcfunction"), 'w') as f:
+            f.write(f"$execute store result score #w {self.namespace}_temp run data get storage {self.namespace}:ram data_socket[$(addr)]\n")
+            f.write(f"scoreboard players set #shift {self.namespace}_temp 0\n")
+            for pos, shift in [(1,8),(2,16),(3,24),(-3,8),(-2,16),(-1,24)]:
+                f.write(f"execute if score #off {self.namespace}_temp matches {pos} run scoreboard players set #shift {self.namespace}_temp {shift}\n")
+            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function {self.namespace}:mem/u_div\n")
+            f.write(f"scoreboard players operation #w {self.namespace}_temp %= #p_8 {self.namespace}_const\n"
+                    f"execute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp += #p_8 {self.namespace}_const\n"
+                    f"scoreboard players operation #res {self.namespace}_temp = #w {self.namespace}_temp\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lh.mcfunction"), 'w') as f:
+            f.write(f"execute if score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/read_lh_socket\n")
+            f.write(f"execute unless score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/read_lh_ram with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lh_ram.mcfunction"), 'w') as f:
+            f.write(f"$execute store result score #w {self.namespace}_temp run data get storage {self.namespace}:ram data[$(addr)]\n")
+            f.write(f"scoreboard players set #shift {self.namespace}_temp 0\n")
+            for pos, shift in [(2,16),(-2,16)]:
+                f.write(f"execute if score #off {self.namespace}_temp matches {pos} run scoreboard players set #shift {self.namespace}_temp {shift}\n")
+            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function {self.namespace}:mem/u_div\n")
+            f.write(f"scoreboard players operation #w {self.namespace}_temp %= #p_16 {self.namespace}_const\n"
+                    f"execute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp += #p_16 {self.namespace}_const\n"
+                    f"execute if score #w {self.namespace}_temp matches 32768..65535 run scoreboard players remove #w {self.namespace}_temp 65536\n"
+                    f"scoreboard players operation #res {self.namespace}_temp = #w {self.namespace}_temp\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lh_socket.mcfunction"), 'w') as f:
+            f.write(f"scoreboard players operation #socket_idx {self.namespace}_temp = #addr_word {self.namespace}_temp\n")
+            f.write(f"scoreboard players add #socket_idx {self.namespace}_temp {-SOCKET_BASE}\n")
+            f.write(f"execute store result storage {self.namespace}:io addr int 1 run scoreboard players get #socket_idx {self.namespace}_temp\n")
+            f.write(f"function {self.namespace}:mem/read_lh_socket_macro with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lh_socket_macro.mcfunction"), 'w') as f:
+            f.write(f"$execute store result score #w {self.namespace}_temp run data get storage {self.namespace}:ram data_socket[$(addr)]\n")
+            f.write(f"scoreboard players set #shift {self.namespace}_temp 0\n")
+            for pos, shift in [(2,16),(-2,16)]:
+                f.write(f"execute if score #off {self.namespace}_temp matches {pos} run scoreboard players set #shift {self.namespace}_temp {shift}\n")
+            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function {self.namespace}:mem/u_div\n")
+            f.write(f"scoreboard players operation #w {self.namespace}_temp %= #p_16 {self.namespace}_const\n"
+                    f"execute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp += #p_16 {self.namespace}_const\n"
+                    f"execute if score #w {self.namespace}_temp matches 32768..65535 run scoreboard players remove #w {self.namespace}_temp 65536\n"
+                    f"scoreboard players operation #res {self.namespace}_temp = #w {self.namespace}_temp\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lhu.mcfunction"), 'w') as f:
+            f.write(f"execute if score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/read_lhu_socket\n")
+            f.write(f"execute unless score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/read_lhu_ram with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lhu_ram.mcfunction"), 'w') as f:
+            f.write(f"$execute store result score #w {self.namespace}_temp run data get storage {self.namespace}:ram data[$(addr)]\n")
+            f.write(f"scoreboard players set #shift {self.namespace}_temp 0\n")
+            for pos, shift in [(2,16),(-2,16)]:
+                f.write(f"execute if score #off {self.namespace}_temp matches {pos} run scoreboard players set #shift {self.namespace}_temp {shift}\n")
+            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function {self.namespace}:mem/u_div\n")
+            f.write(f"scoreboard players operation #w {self.namespace}_temp %= #p_16 {self.namespace}_const\n"
+                    f"execute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp += #p_16 {self.namespace}_const\n"
+                    f"scoreboard players operation #res {self.namespace}_temp = #w {self.namespace}_temp\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lhu_socket.mcfunction"), 'w') as f:
+            f.write(f"scoreboard players operation #socket_idx {self.namespace}_temp = #addr_word {self.namespace}_temp\n")
+            f.write(f"scoreboard players add #socket_idx {self.namespace}_temp {-SOCKET_BASE}\n")
+            f.write(f"execute store result storage {self.namespace}:io addr int 1 run scoreboard players get #socket_idx {self.namespace}_temp\n")
+            f.write(f"function {self.namespace}:mem/read_lhu_socket_macro with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "read_lhu_socket_macro.mcfunction"), 'w') as f:
+            f.write(f"$execute store result score #w {self.namespace}_temp run data get storage {self.namespace}:ram data_socket[$(addr)]\n")
+            f.write(f"scoreboard players set #shift {self.namespace}_temp 0\n")
+            for pos, shift in [(2,16),(-2,16)]:
+                f.write(f"execute if score #off {self.namespace}_temp matches {pos} run scoreboard players set #shift {self.namespace}_temp {shift}\n")
+            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function {self.namespace}:mem/u_div\n")
+            f.write(f"scoreboard players operation #w {self.namespace}_temp %= #p_16 {self.namespace}_const\n"
+                    f"execute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp += #p_16 {self.namespace}_const\n"
+                    f"scoreboard players operation #res {self.namespace}_temp = #w {self.namespace}_temp\n")
+
         with open(os.path.join(self.output_dir, "mem", "u_div.mcfunction"), 'w') as f:
             f.write(f"execute if score #w {self.namespace}_temp matches ..-1 run scoreboard players set #is_neg {self.namespace}_temp 1\n")
             f.write(f"execute unless score #w {self.namespace}_temp matches ..-1 run scoreboard players set #is_neg {self.namespace}_temp 0\n")
             f.write(f"execute if score #is_neg {self.namespace}_temp matches 1 run scoreboard players operation #w {self.namespace}_temp -= #min_int {self.namespace}_const\n")
-            
             f.write(f"execute if score #shift {self.namespace}_temp matches 8 run scoreboard players operation #w {self.namespace}_temp /= #p_8 {self.namespace}_const\n")
             f.write(f"execute if score #shift {self.namespace}_temp matches 16 run scoreboard players operation #w {self.namespace}_temp /= #p_16 {self.namespace}_const\n")
             f.write(f"execute if score #shift {self.namespace}_temp matches 24 run scoreboard players operation #w {self.namespace}_temp /= #p_24 {self.namespace}_const\n")
-            
             f.write(f"execute if score #is_neg {self.namespace}_temp matches 1 if score #shift {self.namespace}_temp matches 8 run scoreboard players operation #w {self.namespace}_temp += #p_23 {self.namespace}_const\n")
             f.write(f"execute if score #is_neg {self.namespace}_temp matches 1 if score #shift {self.namespace}_temp matches 16 run scoreboard players operation #w {self.namespace}_temp += #p_15 {self.namespace}_const\n")
             f.write(f"execute if score #is_neg {self.namespace}_temp matches 1 if score #shift {self.namespace}_temp matches 24 run scoreboard players operation #w {self.namespace}_temp += #p_7 {self.namespace}_const\n")
 
-        with open(os.path.join(self.output_dir, "mem", "read_lbu.mcfunction"), 'w') as f:
-            f.write(f"$execute store result score #w {self.namespace}_temp run data get storage {self.namespace}:ram data[$(addr)]\n")
-            f.write(f"scoreboard players set #shift {self.namespace}_temp 0\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches 1 run scoreboard players set #shift {self.namespace}_temp 8\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches 2 run scoreboard players set #shift {self.namespace}_temp 16\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches 3 run scoreboard players set #shift {self.namespace}_temp 24\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -3 run scoreboard players set #shift {self.namespace}_temp 8\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -2 run scoreboard players set #shift {self.namespace}_temp 16\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -1 run scoreboard players set #shift {self.namespace}_temp 24\n")
-            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function %s:mem/u_div\n" % self.namespace)
-            f.write(f"scoreboard players operation #w {self.namespace}_temp %= #p_8 {self.namespace}_const\nexecute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp += #p_8 {self.namespace}_const\nscoreboard players operation #res {self.namespace}_temp = #w {self.namespace}_temp\n")
-        
-        with open(os.path.join(self.output_dir, "mem", "read_lh.mcfunction"), 'w') as f:
-            f.write(f"$execute store result score #w {self.namespace}_temp run data get storage {self.namespace}:ram data[$(addr)]\n")
-            f.write(f"scoreboard players set #shift {self.namespace}_temp 0\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches 2 run scoreboard players set #shift {self.namespace}_temp 16\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -2 run scoreboard players set #shift {self.namespace}_temp 16\n")
-            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function %s:mem/u_div\n" % self.namespace)
-            f.write(f"scoreboard players operation #w {self.namespace}_temp %= #p_16 {self.namespace}_const\nexecute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp += #p_16 {self.namespace}_const\nexecute if score #w {self.namespace}_temp matches 32768..65535 run scoreboard players remove #w {self.namespace}_temp 65536\nscoreboard players operation #res {self.namespace}_temp = #w {self.namespace}_temp\n")
-        
-        with open(os.path.join(self.output_dir, "mem", "read_lhu.mcfunction"), 'w') as f:
-            f.write(f"$execute store result score #w {self.namespace}_temp run data get storage {self.namespace}:ram data[$(addr)]\n")
-            f.write(f"scoreboard players set #shift {self.namespace}_temp 0\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches 2 run scoreboard players set #shift {self.namespace}_temp 16\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -2 run scoreboard players set #shift {self.namespace}_temp 16\n")
-            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function %s:mem/u_div\n" % self.namespace)
-            f.write(f"scoreboard players operation #w {self.namespace}_temp %= #p_16 {self.namespace}_const\nexecute if score #w {self.namespace}_temp matches ..-1 run scoreboard players operation #w {self.namespace}_temp += #p_16 {self.namespace}_const\nscoreboard players operation #res {self.namespace}_temp = #w {self.namespace}_temp\n")
-        with open(os.path.join(self.output_dir, "mem", "read_lw.mcfunction"), 'w') as f:
-             f.write(f"$execute store result score #res {self.namespace}_temp run data get storage {self.namespace}:ram data[$(addr)]\n")
-        with open(os.path.join(self.output_dir, "mem", "write_sw.mcfunction"), 'w') as f: f.write(f"$data modify storage {self.namespace}:ram data[$(addr)] set from storage {self.namespace}:io val\n")
-        with open(os.path.join(self.output_dir, "mem", "write_sb.mcfunction"), 'w') as f:
-            f.write(f"$execute store result score #old {self.namespace}_temp run data get storage {self.namespace}:ram data[$(addr)]\n")
+        with open(os.path.join(self.output_dir, "mem", "write_sw.mcfunction"), 'w') as f:
+            f.write(f"execute if score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/write_sw_socket\n")
+            f.write(f"execute unless score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/write_sw_ram with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "write_sw_ram.mcfunction"), 'w') as f:
+            f.write(f"$data modify storage {self.namespace}:ram data[$(addr)] set from storage {self.namespace}:io val\n")
+
+        with open(os.path.join(self.output_dir, "mem", "write_sw_socket.mcfunction"), 'w') as f:
+            f.write(f"scoreboard players operation #socket_idx {self.namespace}_temp = #addr_word {self.namespace}_temp\n")
+            f.write(f"scoreboard players add #socket_idx {self.namespace}_temp {-SOCKET_BASE}\n")
+            f.write(f"execute store result storage {self.namespace}:io addr int 1 run scoreboard players get #socket_idx {self.namespace}_temp\n")
+            f.write(f"function {self.namespace}:mem/write_sw_socket_macro with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "write_sw_socket_macro.mcfunction"), 'w') as f:
+            f.write(f"$data modify storage {self.namespace}:ram data_socket[$(addr)] set from storage {self.namespace}:io val\n")
+
+        def _write_sb_body(f, read_macro_fn, write_macro_fn):
+            """Emit the shared RMW byte-write body, with pluggable read/write fns."""
             f.write(f"scoreboard players operation #w {self.namespace}_temp = #old {self.namespace}_temp\n")
             f.write(f"scoreboard players set #shift {self.namespace}_temp 0\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches 1 run scoreboard players set #shift {self.namespace}_temp 8\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches 2 run scoreboard players set #shift {self.namespace}_temp 16\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches 3 run scoreboard players set #shift {self.namespace}_temp 24\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -3 run scoreboard players set #shift {self.namespace}_temp 8\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -2 run scoreboard players set #shift {self.namespace}_temp 16\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -1 run scoreboard players set #shift {self.namespace}_temp 24\n")
+            for pos, shift in [(1,8),(2,16),(3,24),(-3,8),(-2,16),(-1,24)]:
+                f.write(f"execute if score #off {self.namespace}_temp matches {pos} run scoreboard players set #shift {self.namespace}_temp {shift}\n")
             f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function {self.namespace}:mem/u_div\n")
-            f.write(f"scoreboard players operation #byte {self.namespace}_temp = #w {self.namespace}_temp\n")
-            f.write(f"scoreboard players operation #byte {self.namespace}_temp %= #p_8 {self.namespace}_const\nexecute if score #byte {self.namespace}_temp matches ..-1 run scoreboard players operation #byte {self.namespace}_temp += #p_8 {self.namespace}_const\n")
-            f.write(f"scoreboard players set #mul {self.namespace}_const 1\nexecute if score #off {self.namespace}_temp matches 1 run scoreboard players operation #mul {self.namespace}_const = #p_8 {self.namespace}_const\nexecute if score #off {self.namespace}_temp matches 2 run scoreboard players operation #mul {self.namespace}_const = #p_16 {self.namespace}_const\nexecute if score #off {self.namespace}_temp matches 3 run scoreboard players operation #mul {self.namespace}_const = #p_24 {self.namespace}_const\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -3 run scoreboard players operation #mul {self.namespace}_const = #p_8 {self.namespace}_const\nexecute if score #off {self.namespace}_temp matches -2 run scoreboard players operation #mul {self.namespace}_const = #p_16 {self.namespace}_const\nexecute if score #off {self.namespace}_temp matches -1 run scoreboard players operation #mul {self.namespace}_const = #p_24 {self.namespace}_const\n")
-            f.write(f"scoreboard players operation #byte {self.namespace}_temp *= #mul {self.namespace}_const\nscoreboard players operation #old {self.namespace}_temp -= #byte {self.namespace}_temp\nexecute store result score #new {self.namespace}_temp run data get storage {self.namespace}:io val\n")
-            f.write(f"scoreboard players operation #new {self.namespace}_temp %= #p_8 {self.namespace}_const\nexecute if score #new {self.namespace}_temp matches ..-1 run scoreboard players operation #new {self.namespace}_temp += #p_8 {self.namespace}_const\nscoreboard players operation #new {self.namespace}_temp *= #mul {self.namespace}_const\n")
-            f.write(f"scoreboard players operation #old {self.namespace}_temp += #new {self.namespace}_temp\nexecute store result storage {self.namespace}:io val int 1 run scoreboard players get #old {self.namespace}_temp\n$data modify storage {self.namespace}:ram data[$(addr)] set from storage {self.namespace}:io val\n")
-        
-        with open(os.path.join(self.output_dir, "mem", "write_sh.mcfunction"), 'w') as f:
+            f.write(f"scoreboard players operation #byte {self.namespace}_temp = #w {self.namespace}_temp\n"
+                    f"scoreboard players operation #byte {self.namespace}_temp %= #p_8 {self.namespace}_const\n"
+                    f"execute if score #byte {self.namespace}_temp matches ..-1 run scoreboard players operation #byte {self.namespace}_temp += #p_8 {self.namespace}_const\n")
+            f.write(f"scoreboard players set #mul {self.namespace}_const 1\n"
+                    f"execute if score #off {self.namespace}_temp matches 1 run scoreboard players operation #mul {self.namespace}_const = #p_8 {self.namespace}_const\n"
+                    f"execute if score #off {self.namespace}_temp matches 2 run scoreboard players operation #mul {self.namespace}_const = #p_16 {self.namespace}_const\n"
+                    f"execute if score #off {self.namespace}_temp matches 3 run scoreboard players operation #mul {self.namespace}_const = #p_24 {self.namespace}_const\n"
+                    f"execute if score #off {self.namespace}_temp matches -3 run scoreboard players operation #mul {self.namespace}_const = #p_8 {self.namespace}_const\n"
+                    f"execute if score #off {self.namespace}_temp matches -2 run scoreboard players operation #mul {self.namespace}_const = #p_16 {self.namespace}_const\n"
+                    f"execute if score #off {self.namespace}_temp matches -1 run scoreboard players operation #mul {self.namespace}_const = #p_24 {self.namespace}_const\n")
+            f.write(f"scoreboard players operation #byte {self.namespace}_temp *= #mul {self.namespace}_const\n"
+                    f"scoreboard players operation #old {self.namespace}_temp -= #byte {self.namespace}_temp\n"
+                    f"execute store result score #new {self.namespace}_temp run data get storage {self.namespace}:io val\n"
+                    f"scoreboard players operation #new {self.namespace}_temp %= #p_8 {self.namespace}_const\n"
+                    f"execute if score #new {self.namespace}_temp matches ..-1 run scoreboard players operation #new {self.namespace}_temp += #p_8 {self.namespace}_const\n"
+                    f"scoreboard players operation #new {self.namespace}_temp *= #mul {self.namespace}_const\n"
+                    f"scoreboard players operation #old {self.namespace}_temp += #new {self.namespace}_temp\n"
+                    f"execute store result storage {self.namespace}:io val int 1 run scoreboard players get #old {self.namespace}_temp\n")
+            f.write(f"function {self.namespace}:mem/{write_macro_fn} with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "write_sb.mcfunction"), 'w') as f:
+            f.write(f"execute if score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/write_sb_socket\n")
+            f.write(f"execute unless score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/write_sb_ram with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "write_sb_ram.mcfunction"), 'w') as f:
             f.write(f"$execute store result score #old {self.namespace}_temp run data get storage {self.namespace}:ram data[$(addr)]\n")
+            _write_sb_body(f, "write_sb_ram", "write_sw_ram")
+
+        with open(os.path.join(self.output_dir, "mem", "write_sb_socket.mcfunction"), 'w') as f:
+            f.write(f"scoreboard players operation #socket_idx {self.namespace}_temp = #addr_word {self.namespace}_temp\n")
+            f.write(f"scoreboard players add #socket_idx {self.namespace}_temp {-SOCKET_BASE}\n")
+            f.write(f"execute store result storage {self.namespace}:io addr int 1 run scoreboard players get #socket_idx {self.namespace}_temp\n")
+            f.write(f"function {self.namespace}:mem/write_sb_socket_read with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "write_sb_socket_read.mcfunction"), 'w') as f:
+            f.write(f"$execute store result score #old {self.namespace}_temp run data get storage {self.namespace}:ram data_socket[$(addr)]\n")
+            _write_sb_body(f, "write_sb_socket_read", "write_sw_socket_macro")
+
+        def _write_sh_body(f, write_macro_fn):
             f.write(f"scoreboard players operation #w {self.namespace}_temp = #old {self.namespace}_temp\n")
             f.write(f"scoreboard players set #shift {self.namespace}_temp 0\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches 2 run scoreboard players set #shift {self.namespace}_temp 16\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -2 run scoreboard players set #shift {self.namespace}_temp 16\n")
-            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function %s:mem/u_div\n" % self.namespace)
-            f.write(f"scoreboard players operation #byte {self.namespace}_temp = #w {self.namespace}_temp\n")
-            f.write(f"scoreboard players operation #byte {self.namespace}_temp %= #p_16 {self.namespace}_const\nexecute if score #byte {self.namespace}_temp matches ..-1 run scoreboard players operation #byte {self.namespace}_temp += #p_16 {self.namespace}_const\n")
-            f.write(f"scoreboard players set #mul {self.namespace}_const 1\nexecute if score #off {self.namespace}_temp matches 2 run scoreboard players operation #mul {self.namespace}_const = #p_16 {self.namespace}_const\n")
-            f.write(f"execute if score #off {self.namespace}_temp matches -2 run scoreboard players operation #mul {self.namespace}_const = #p_16 {self.namespace}_const\n")
-            f.write(f"scoreboard players operation #byte {self.namespace}_temp *= #mul {self.namespace}_const\nscoreboard players operation #old {self.namespace}_temp -= #byte {self.namespace}_temp\nexecute store result score #new {self.namespace}_temp run data get storage {self.namespace}:io val\n")
-            f.write(f"scoreboard players operation #new {self.namespace}_temp %= #p_16 {self.namespace}_const\nexecute if score #new {self.namespace}_temp matches ..-1 run scoreboard players operation #new {self.namespace}_temp += #p_16 {self.namespace}_const\nscoreboard players operation #new {self.namespace}_temp *= #mul {self.namespace}_const\n")
-            f.write(f"scoreboard players operation #old {self.namespace}_temp += #new {self.namespace}_temp\nexecute store result storage {self.namespace}:io val int 1 run scoreboard players get #old {self.namespace}_temp\n$data modify storage {self.namespace}:ram data[$(addr)] set from storage {self.namespace}:io val\n")
+            for pos, shift in [(2,16),(-2,16)]:
+                f.write(f"execute if score #off {self.namespace}_temp matches {pos} run scoreboard players set #shift {self.namespace}_temp {shift}\n")
+            f.write(f"execute unless score #off {self.namespace}_temp matches 0 run function {self.namespace}:mem/u_div\n")
+            f.write(f"scoreboard players operation #byte {self.namespace}_temp = #w {self.namespace}_temp\n"
+                    f"scoreboard players operation #byte {self.namespace}_temp %= #p_16 {self.namespace}_const\n"
+                    f"execute if score #byte {self.namespace}_temp matches ..-1 run scoreboard players operation #byte {self.namespace}_temp += #p_16 {self.namespace}_const\n")
+            f.write(f"scoreboard players set #mul {self.namespace}_const 1\n"
+                    f"execute if score #off {self.namespace}_temp matches 2 run scoreboard players operation #mul {self.namespace}_const = #p_16 {self.namespace}_const\n"
+                    f"execute if score #off {self.namespace}_temp matches -2 run scoreboard players operation #mul {self.namespace}_const = #p_16 {self.namespace}_const\n")
+            f.write(f"scoreboard players operation #byte {self.namespace}_temp *= #mul {self.namespace}_const\n"
+                    f"scoreboard players operation #old {self.namespace}_temp -= #byte {self.namespace}_temp\n"
+                    f"execute store result score #new {self.namespace}_temp run data get storage {self.namespace}:io val\n"
+                    f"scoreboard players operation #new {self.namespace}_temp %= #p_16 {self.namespace}_const\n"
+                    f"execute if score #new {self.namespace}_temp matches ..-1 run scoreboard players operation #new {self.namespace}_temp += #p_16 {self.namespace}_const\n"
+                    f"scoreboard players operation #new {self.namespace}_temp *= #mul {self.namespace}_const\n"
+                    f"scoreboard players operation #old {self.namespace}_temp += #new {self.namespace}_temp\n"
+                    f"execute store result storage {self.namespace}:io val int 1 run scoreboard players get #old {self.namespace}_temp\n")
+            f.write(f"function {self.namespace}:mem/{write_macro_fn} with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "write_sh.mcfunction"), 'w') as f:
+            f.write(f"execute if score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/write_sh_socket\n")
+            f.write(f"execute unless score #addr_word {self.namespace}_temp matches {SOCKET_BASE}..{SOCKET_END} run function {self.namespace}:mem/write_sh_ram with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "write_sh_ram.mcfunction"), 'w') as f:
+            f.write(f"$execute store result score #old {self.namespace}_temp run data get storage {self.namespace}:ram data[$(addr)]\n")
+            _write_sh_body(f, "write_sw_ram")
+
+        with open(os.path.join(self.output_dir, "mem", "write_sh_socket.mcfunction"), 'w') as f:
+            f.write(f"scoreboard players operation #socket_idx {self.namespace}_temp = #addr_word {self.namespace}_temp\n")
+            f.write(f"scoreboard players add #socket_idx {self.namespace}_temp {-SOCKET_BASE}\n")
+            f.write(f"execute store result storage {self.namespace}:io addr int 1 run scoreboard players get #socket_idx {self.namespace}_temp\n")
+            f.write(f"function {self.namespace}:mem/write_sh_socket_read with storage {self.namespace}:io\n")
+
+        with open(os.path.join(self.output_dir, "mem", "write_sh_socket_read.mcfunction"), 'w') as f:
+            f.write(f"$execute store result score #old {self.namespace}_temp run data get storage {self.namespace}:ram data_socket[$(addr)]\n")
+            _write_sh_body(f, "write_sw_socket_macro")
 
     def gen_read_nbt(self):
         lines = [
@@ -1058,7 +1224,7 @@ class LibGenerator:
             f.write("\n".join(lines) + "\n")
 
         with open(os.path.join(self.output_dir, "ecall", "write_nbt_run_macro.mcfunction"), 'w') as f:
-             f.write("$data modify storage $(source) $(path) set value $(value)\n")
+             f.write(f"$data modify storage $(source) $(path) set value $(value)\n")
 
     def gen_ecall(self):
         with open(os.path.join(self.output_dir, "ecall", "dispatch.mcfunction"), 'w') as f:

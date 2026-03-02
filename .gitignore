@@ -5,6 +5,7 @@ __pycache__/
 *.bin
 *.map
 Image
+netdriver/mcnetdriver
 
 .vscode/
 

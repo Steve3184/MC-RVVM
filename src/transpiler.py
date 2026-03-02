@@ -150,6 +150,7 @@ class Transpiler:
             cmds.append(f"scoreboard players operation #off {temp_obj} = #addr {temp_obj}")
             cmds.append(f"scoreboard players operation #off {temp_obj} %= #four {const_obj}")
             cmds.append(f"scoreboard players operation #addr {temp_obj} /= #four {const_obj}")
+            cmds.append(f"scoreboard players operation #addr_word {temp_obj} = #addr {temp_obj}")
             
             cmds.append(f"execute store result storage {self.namespace}:io addr int 1 run scoreboard players get #addr {temp_obj}")
             cmds.append(f"execute store result storage {self.namespace}:io off int 1 run scoreboard players get #off {temp_obj}")
@@ -172,6 +173,7 @@ class Transpiler:
             cmds.append(f"scoreboard players operation #off {temp_obj} = #addr {temp_obj}")
             cmds.append(f"scoreboard players operation #off {temp_obj} %= #four {const_obj}")
             cmds.append(f"scoreboard players operation #addr {temp_obj} /= #four {const_obj}")
+            cmds.append(f"scoreboard players operation #addr_word {temp_obj} = #addr {temp_obj}")
             cmds.append(f"execute store result storage {self.namespace}:io addr int 1 run scoreboard players get #addr {temp_obj}")
             
             if instr.name == "lr.w":
